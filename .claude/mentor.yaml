@@ -1,0 +1,21 @@
+schema_version: 1
+mode: development
+
+paths:
+  spec: SPEC.md
+  wiki: doc/Wiki
+  epic: doc/Epic
+  sprint: doc/Sprint
+  issue: doc/Issue
+
+current_state:
+  enabled: true
+  path: doc/current_state
+
+integration:
+  kanban:
+    enabled: disable
+  memory:
+    enabled: disable
+  notify:
+    enabled: disable
