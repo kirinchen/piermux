@@ -5,7 +5,7 @@ owner: null
 
 # Architecture — Current State
 
-> *How the system **actually** looks right now. Pair with [`../../SPEC.md`](../../SPEC.md) which describes intent.*
+> *How the system **actually** looks right now. Pair with [`../SPEC.md`](../SPEC.md) which describes intent.*
 >
 > **Maintenance rule**: when your code change goes beyond what this file describes
 > (new component, removed component, interaction change, tech stack swap),

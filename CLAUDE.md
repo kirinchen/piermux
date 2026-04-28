@@ -1,7 +1,7 @@
 # CLAUDE.md — piermux 開發工作守則
 
 > 這份文件給 Claude Code(或任何 AI coding agent)看,讓它在做 piermux 工作時保持方向。
-> Owner: kirin。專案 SPEC: `SPEC.md`。
+> Owner: kirin。專案 SPEC: `doc/SPEC.md`。
 
 ---
 
@@ -11,7 +11,7 @@
 
 **最重要的一句話:** piermux 的核心賣點是「**輸入體驗**」。如果有任何決定可能讓輸入變難用,你必須先停下來跟使用者確認,不要自己決定。
 
-完整定位讀 `SPEC.md`,但你動手前**至少要記住這 3 件事:**
+完整定位讀 `doc/SPEC.md`,但你動手前**至少要記住這 3 件事:**
 
 1. **Line buffer mode 是預設輸入模式** — 字元先進本地 buffer,Enter 才送出。**不是字元 stream**。
 2. **三層 refresh** — session / host / 全域,每層都要有對應 UI。

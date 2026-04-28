@@ -24,6 +24,9 @@ Only one of {done, cancelled} is terminal.
 
 ## Index
 
-(Add entries as you create them.)
+### Active
+- [EPIC-001](EPIC-001.md) — Desktop M1: Core attach + line buffer (target SPRINT-2026-W18+)
 
-- _none yet_
+### Planned
+- _EPIC-002 — Android M2 (建立於 M1 完成後)_
+- _EPIC-003 — Polish + 開源 / M3 (建立於 M2 完成後)_

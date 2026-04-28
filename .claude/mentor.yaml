@@ -2,7 +2,7 @@ schema_version: 1
 mode: development
 
 paths:
-  spec: SPEC.md
+  spec: doc/SPEC.md
   wiki: doc/Wiki
   epic: doc/Epic
   sprint: doc/Sprint
