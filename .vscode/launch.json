@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Tauri Dev (run)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run tauri dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Tauri Dev (debug Rust, Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/debug/piermux.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "tauri:dev:setup",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Tauri Prod (debug release, Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/src-tauri/target/release/piermux.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "tauri:prod:setup",
+      "console": "integratedTerminal"
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ui:dev",
+      "type": "shell",
+      "isBackground": true,
+      "command": "npm",
+      "args": ["run", "dev"],
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "tauri-dev" },
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": [{ "regexp": "^$" }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "ui:build",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build"]
+    },
+    {
+      "label": "cargo:build:debug",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build"],
+      "options": { "cwd": "${workspaceFolder}/src-tauri" }
+    },
+    {
+      "label": "cargo:build:release",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build", "--release"],
+      "options": { "cwd": "${workspaceFolder}/src-tauri" }
+    },
+    {
+      "label": "cargo:check",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["check"],
+      "options": { "cwd": "${workspaceFolder}/src-tauri" },
+      "group": "test"
+    },
+    {
+      "label": "cargo:clippy",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["clippy", "--", "-D", "warnings"],
+      "options": { "cwd": "${workspaceFolder}/src-tauri" },
+      "group": "test"
+    },
+    {
+      "label": "tsc:check",
+      "type": "shell",
+      "command": "npx",
+      "args": ["tsc", "--noEmit"],
+      "group": "test"
+    },
+    {
+      "label": "tauri:dev:setup",
+      "dependsOn": ["cargo:build:debug", "ui:dev"],
+      "dependsOrder": "sequence"
+    },
+    {
+      "label": "tauri:prod:setup",
+      "dependsOn": ["ui:build", "cargo:build:release"],
+      "dependsOrder": "sequence"
+    }
+  ]
+}
