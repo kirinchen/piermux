@@ -3,7 +3,7 @@ id: ISSUE-001
 title: M1a — Tauri scaffold + DB
 epic: EPIC-001
 sprint: SPRINT-2026-W18
-status: in_progress
+status: resolved
 priority: P0
 tasks: []
 created: 2026-04-28
@@ -18,9 +18,9 @@ created: 2026-04-28
 - [x] `npm create tauri-app@latest` 起 React + TS + Vite template
 - [x] `src-tauri/Cargo.toml` 設 Rust edition 2021,MSRV 1.80
 - [x] `tauri-plugin-sql` 接好,跑 [SPEC §5](../SPEC.md) schema 為第一份 migration:`hosts` / `ui_preferences` / `quick_presets` / `capture_cache` 四張表
-- [ ] `npm run tauri dev` 在 Windows 起得來([CLAUDE.md](../../CLAUDE.md) 環境前提:Windows native + npm,**不是 pnpm**) — **owner Windows 驗**
-- [ ] DB 預設位置:`%APPDATA%\dev.kirinchen.piermux\piermux.db`(CLAUDE.md 路徑章節) — **owner Windows 驗**
-- [x] commit 訊息 `M1a: tauri scaffold + sqlite migration`
+- [x] `npm run tauri dev` 在 Windows 起得來 — owner 2026-04-28 跑通(2 分鐘 cargo build,`piermux.exe` 起來)
+- [→] DB 預設位置:`%APPDATA%\dev.kirinchen.piermux\piermux.db` — **搬到 ISSUE-002 驗**(tauri-plugin-sql lazy init,要 frontend 第一次 `Database.load()` 才建 DB,M1a App.tsx 沒 invoke 所以不會建)
+- [x] commit 訊息 `M1a: tauri scaffold + sqlite migration` — commit `9b09716`
 
 ## Investigation / Notes
 
@@ -38,4 +38,23 @@ created: 2026-04-28
 
 ## Resolution
 
-_(填於 status → resolved 時)_
+### What was done
+
+- Tauri 2 + React 19 + TS + Vite 7 scaffold,rename `piermux-scaffold` → `piermux` 全 repo
+- `Cargo.toml` 加 `rust-version = "1.80"`、`authors = ["kirin"]`、適合的 description
+- 拿掉 scaffold 預設的 `tauri-plugin-opener`(SPEC 沒用,YAGNI)
+- 加 `tauri-plugin-sql ^2`(sqlite feature) + 註冊到 `tauri::Builder`
+- DB URL `sqlite:piermux.db` + identifier `dev.kirinchen.piermux` → 配合 plugin 預設,Windows 落 `%APPDATA%\dev.kirinchen.piermux\piermux.db`
+- `migrations/0001_initial.sql` verbatim 對 SPEC §5,4 張表
+- `App.tsx` 把 greet demo 換成最小 placeholder
+- VS Code launch + tasks 配套(`81067e2`)— F5 直接 RUN
+
+### What's different now
+
+- 在 Windows 上 `npm run tauri dev` 能 cold-build + 起視窗(2 分鐘)
+- 後續 Issue 直接基於這個 scaffold 開
+- DB 驗證自然落在 ISSUE-002 第一個 `Database.load()` 的時候
+
+### Follow-ups
+
+- ISSUE-002 第一次 `list_hosts` invoke 後,確認 `%APPDATA%\dev.kirinchen.piermux\piermux.db` 存在 + 4 張表都建,把這條 acceptance 在 ISSUE-002 那邊勾掉

@@ -16,6 +16,7 @@ created: 2026-04-28
 ## Acceptance Criteria
 
 - [ ] 6 個 Tauri command 實作:`list_hosts` / `create_host` / `update_host` / `delete_host` / `test_connection` / `import_private_key`
+- [ ] (繼承自 ISSUE-001) 第一次 `list_hosts` invoke 後,DB 確實落在 `%APPDATA%\dev.kirinchen.piermux\piermux.db`,4 張表都建
 - [ ] `test_connection` 用 russh 連一次 + 跑 `whoami`,成功回 `Ok(())`,失敗回 `Err(String)` 含原因(timeout / auth fail / DNS)
 - [ ] Desktop UI:host 列表 + [+ Add Host] dialog(shadcn/ui form),欄位對齊 hosts table
 - [ ] Add 完 row 出現在列表;Delete 後消失;Edit 後欄位更新

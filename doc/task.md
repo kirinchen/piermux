@@ -12,7 +12,7 @@
 
 ## Sprint commitments(SPRINT-2026-W18)
 
-- [~] **[ISSUE-001](Issue/ISSUE-001.md)** M1a — Tauri scaffold + DB(Linux end done,等 owner Windows 驗 `tauri dev`)
+- [x] **[ISSUE-001](Issue/ISSUE-001.md)** M1a — Tauri scaffold + DB(`resolved` · 2026-04-28 owner Windows 跑通,DB 路徑驗證搬 ISSUE-002)
 - [ ] **[ISSUE-002](Issue/ISSUE-002.md)** M1b — Host CRUD + Test Connection
 
 > M1c..M1h 已落 [ISSUE-003..008](Issue/) 並掛在 [EPIC-001](Epic/EPIC-001.md),但本 sprint 不承諾。下個 sprint 滾入更多。

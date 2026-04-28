@@ -27,6 +27,7 @@ _(agents and humans append dated notes as they work)_
 - Owner update CLAUDE.md(commit `fb17cc4`)成 vibe coding autonomy 風格 — 「小事自己決定,大事再問」。
 - Agent 把先前 4 條 schema open questions 自行拍板(`NOTES.md` D-1..D-4),Issues unblock。
 - 建 `NOTES.md`(closes task.md `T-1`)。
+- **M1a (ISSUE-001) `resolved`** — agent 在 Linux 把 scaffold + plugin-sql + migration 寫好(commit `9b09716`),VS Code launch 配套(`81067e2`),owner 在 Windows `npm run tauri dev` 跑通(2 分鐘 cargo build)。DB 路徑驗證 lazy init 留給 ISSUE-002 第一個 `list_hosts` invoke 時驗。
 
 ## Retrospective
 

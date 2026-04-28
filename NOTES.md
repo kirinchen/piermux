@@ -5,7 +5,7 @@
 
 ## Current milestone
 
-**M1a — Tauri scaffold + DB**(實作中,2026-04-28 開工)
+**M1b — Host CRUD + Test Connection**(預備中,M1a `resolved` 2026-04-28)
 
 ---
 
