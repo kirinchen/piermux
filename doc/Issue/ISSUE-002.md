@@ -24,9 +24,10 @@ created: 2026-04-28
 
 ## Investigation / Notes
 
-### 2026-04-28
-- **Blocked on owner Q:** `auth_type='password'` 的 password 走 keyring-rs(SPEC §5 結尾「密碼存 OS keystore」),但 hosts table 沒 `secret_alias` 欄位 — schema 要不要改?(task.md open questions)
-- `import_private_key` 對 desktop 是 path-based、Android 是 import bytes 進 keystore。M1b 階段只做 desktop path,M2 再統合(EPIC-002 範圍)。
+### 2026-04-28 — Decisions(see [`NOTES.md` D-3, D-4](../../NOTES.md))
+- 密碼:`auth_type='password'` 時,密碼用 keyring-rs 寫到 entry `piermux/host/{host_id}/password`,hosts table 不存(D-3)。
+- `import_private_key`:M1b 只做 desktop path-based(直接寫 hosts.private_key_path 為檔案絕對路徑)。Android 邏輯推到 M2 / EPIC-002(D-4)。
+- `test_connection` 用 russh 連 + 跑 `whoami`,失敗訊息 mapping 到 `Err(String)`(M1 階段不升 `thiserror`,依 CLAUDE.md)。
 
 ## Resolution
 

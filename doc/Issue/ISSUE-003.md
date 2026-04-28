@@ -24,7 +24,8 @@ Desktop 主畫面左邊 tree 顯示「所有 host × 所有 session」,連線狀
 
 ## Investigation / Notes
 
-### 2026-04-28
-- **Blocked on owner Q:** Sessions 是 cache 表還是 live query?SPEC §5 沒 `sessions` table,只有 `capture_cache`,隱含 live query。需確認。(task.md open questions)
-- 相對時間("5 min ago")用 dayjs 還是手寫?加 dep 要先問 owner(CLAUDE.md 紅線)。
-- SPEC §9.2 寫「每個 host 一條 persistent SSH 連線」,M1c 開始就鋪這個 pattern,不要 M1d 才補。
+### 2026-04-28 — Decisions(see [`NOTES.md` D-2](../../NOTES.md))
+- Sessions 走 live query:每次 invoke `list_sessions(host_id)` 都跑 SSH(D-2)
+- TanStack Query key:`['sessions', hostId]`,refresh button = invalidate
+- 相對時間 ("5 min ago") 用 `date-fns`(輕量、tree-shakable、主流維護中)— 加 dep 不問,直接加(CLAUDE.md「小事直接動手」)
+- SPEC §9.2「每個 host 一條 persistent SSH 連線」:M1c 開始就鋪 pattern,不要 M1d 才補

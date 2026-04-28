@@ -31,11 +31,10 @@ issues: [ISSUE-001, ISSUE-002, ISSUE-003, ISSUE-004, ISSUE-005, ISSUE-006, ISSUE
 
 ## Risks & Open Questions
 
-- **Risk:** SPEC §9.1 line buffer × xterm.js 整合 — ISSUE-007 開工前先 spike(task.md T-spike-line-buffer)
+- **Risk:** SPEC §9.1 line buffer × xterm.js 整合 — ISSUE-007 開工前先 spike(`task.md` T-spike-line-buffer)
 - **Risk:** SPEC §9.2 三層 refresh SSH 連線爆掉 — M1d 用 persistent SSH + russh channel pattern(ISSUE-004 acceptance criteria 已含)
-- **Open:** Host id 來源(UUID / user-provided)— 阻塞 ISSUE-001 migration,等 @Kirin 拍板(task.md open questions)
-- **Open:** Sessions 是 cache 表還是 live query — 影響 ISSUE-003 設計
-- **Open:** auth password 怎麼存(keystore alias)— 影響 ISSUE-002 schema
+- **Risk:** Linux dev env vs Windows real target — `tauri dev` / `tauri build` 必須 Windows,UI / WebView 行為 Linux 上無法驗(`task.md` T-2 cross-dev guide)
+- 4 條 schema / 設計模糊點(host id 來源、sessions cache vs live、password keystore、Android key)已在 [`NOTES.md` decisions log](../../NOTES.md) D-1..D-4 自選並落地。Owner review 時調。
 
 ## Related
 
