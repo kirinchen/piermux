@@ -83,7 +83,7 @@ pub async fn test_connection(
             let pem = std::fs::read(path).map_err(|e| anyhow!("read key {path:?}: {e}"))?;
             // decode_pem_privkey_nopass 回 DecodedPrivkeyNopass enum,
             // decode_pem_privkey 回 Privkey 直接 — 兩條 path 統一拿到 Privkey
-            let privkey: makiko::keys::Privkey = match passphrase {
+            let privkey: makiko::Privkey = match passphrase {
                 None => match makiko::keys::decode_pem_privkey_nopass(&pem)
                     .map_err(|e| anyhow!("decode key (no passphrase): {e}"))?
                 {
@@ -99,8 +99,8 @@ pub async fn test_connection(
             // - RSA → SHA2-256(現代 ssh server 都接,SHA1 廢棄)
             // - 其他類型(ECDSA / Dsa)M1b 不支援,owner 撞到再補
             let algo: &'static makiko::pubkey::PubkeyAlgo = match &privkey {
-                makiko::keys::Privkey::Ed25519(_) => &makiko::pubkey::SSH_ED25519,
-                makiko::keys::Privkey::Rsa(_) => &makiko::pubkey::RSA_SHA2_256,
+                makiko::Privkey::Ed25519(_) => &makiko::pubkey::SSH_ED25519,
+                makiko::Privkey::Rsa(_) => &makiko::pubkey::RSA_SHA2_256,
                 _ => bail!("M1b 暫只支援 Ed25519 / RSA 私鑰;ECDSA/DSA 之後補"),
             };
 
