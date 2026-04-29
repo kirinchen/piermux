@@ -5,7 +5,7 @@
 
 ## Current milestone
 
-**M1b — Host CRUD + Test Connection**(預備中,M1a `resolved` 2026-04-28)
+**M1b — Host CRUD + Test Connection**(實作中,2026-04-29 開工 — backend 先,frontend 後)
 
 ---
 
@@ -44,6 +44,48 @@
 - **M1 是 desktop only**,M1 schema 不動
 - **M2 開工時的選擇(留給未來 me):** Android 端把 bytes 寫進 keystore,alias 寫回 `private_key_path` 欄(復用),或加 schema migration 補新欄
 - **Affects:** ISSUE-002 範圍縮回 desktop path,Android 邏輯留給 EPIC-002
+
+### 2026-04-29 — Backend DB access 設計(M1b)
+
+#### D-5 Backend 開自己的 sqlx pool 直連 DB,跟 `tauri-plugin-sql` 共存
+
+- **問題:** SPEC §6.1 把 hosts CRUD 列為 backend Tauri commands(`create_host` 等),但 `tauri-plugin-sql` 的設計理念是 frontend 寫 SQL,backend 不一定能拿到 plugin 的 sqlx pool
+- **選的:** Backend 自開 sqlx `SqlitePool`,DB 路徑用 `app_handle.path().app_data_dir()` 推導(跟 plugin-sql 落同一檔)。SQLite 開 WAL mode 讓 plugin-sql + backend 兩條 connection 共存
+- **為什麼不走方案 2(frontend 直接寫 SQL):** business logic(UUID 生成、keyring 存密碼、SSH test 連線結果決定要不要寫 last_used_at)集中 backend 比較乾淨,frontend 只 invoke。SPEC §6.1 也是這個意圖
+- **plugin-sql 保留給:** M1d `capture_cache` 寫入時 frontend incremental UI update 用(`onUpdated` event 等)
+- **Affects:** ISSUE-002 + 後續 ISSUE-003/004 backend 邏輯
+
+#### Dependencies 加進 Cargo.toml(本次)
+
+- `russh` ^0.50 — SSH client,SPEC §13 指定
+- `uuid` 1 with `v4` — D-1 host id 用
+- `keyring` 3 — D-3 password 存 OS keystore
+- `sqlx` 0.8 with `runtime-tokio,sqlite` — backend pool
+- `tokio` 1 with `full` — async runtime(tauri 已 transitive 帶,加 direct dep 顯式)
+- `anyhow` 1 — error 短期用,M1 後期再升 thiserror per CLAUDE.md
+- `chrono` 0.4 with `serde` — `last_used_at` 等 timestamp
+
+CLAUDE.md「加 dep 小事直接動」,沒先問 owner。Plugin/SSH/keyring 都是主流維護中的 crate。
+
+#### D-6 russh 暫拔,test_connection stub(2026-04-29)
+
+**踩到的坑:**
+- `cargo add russh` → 0.60.1
+- `cargo check` 在 `ed25519-dalek 3.0.0-pre.6` 編譯時掉:`pkcs8::Error::KeyMalformed` 在新版 pkcs8 從 unit variant 改成 tuple variant,但 ed25519-dalek pre.6 source 還用舊寫法(2 行)。
+- 試降版本:russh 0.55-0.59 都拉 `base16ct 0.2.0`(crates.io 抓不到,可能 yanked);russh 0.54.6 拉 `libcrux-ml-kem 0.0.3`(yanked)。
+- 試 `cargo update -p ed25519-dalek` — 沒有更新版本,pre.6 已是 latest pre-release。
+
+**選擇(owner 拍板 A+E hybrid):**
+- **拔 russh 出 Cargo.toml**,`ssh.rs` 變 stub:`test_connection` 回 `Err("暫時下線")`,signature + `AuthMaterial` enum 保留以便接回。
+- 5/6 commands(list/create/update/delete/import_private_key)完整,test_connection 顯示明確錯誤訊息。
+- **平行 spike(M1b/1.5):** agent 找 ed25519-dalek 修好的 fork(或自己 fork 改 2 行),用 `[patch.crates-io]` 接回 russh。Spike 結果寫進此區。
+- 為什麼不換 SSH lib(makiko / ssh2):SPEC §13 + CLAUDE.md 紅線都明寫 russh。換等於動 SPEC,M2 / M3 都受影響,只為短期 dep bug 不值得。
+
+**M1b/1 acceptance 影響:**
+- 5/6 Tauri commands 完整實作 → 勾上
+- test_connection stub → 留空,Resolution 註明等 patch
+- 不擋 M1b/2 frontend(Add Host 流程不靠 test_connection 也能 save)
+- 不擋 M1c..M1g(那幾個沒用 SSH connect,只用 list_sessions / capture-pane / send-keys 等 — 但 SPEC §6.2-6.6 都靠 SSH,所以實際上 M1c 起步前 patch 必須到位。M1b/1.5 是必經)
 
 ---
 

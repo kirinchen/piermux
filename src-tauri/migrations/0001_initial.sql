@@ -1,6 +1,8 @@
 -- piermux initial schema (matches doc/SPEC.md §5)
+-- IF NOT EXISTS:讓 backend 啟動時的 apply_schema 跟 tauri-plugin-sql 兩邊都安全
+-- (即使兩條 connection 都跑這個 SQL 也不會撞)
 
-CREATE TABLE hosts (
+CREATE TABLE IF NOT EXISTS hosts (
     id               TEXT PRIMARY KEY,
     display_name     TEXT NOT NULL UNIQUE,
     ssh_host         TEXT NOT NULL,
@@ -13,12 +15,12 @@ CREATE TABLE hosts (
     last_used_at     TEXT
 );
 
-CREATE TABLE ui_preferences (
+CREATE TABLE IF NOT EXISTS ui_preferences (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
 
-CREATE TABLE quick_presets (
+CREATE TABLE IF NOT EXISTS quick_presets (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     label      TEXT NOT NULL,
     payload    TEXT NOT NULL,
@@ -26,7 +28,7 @@ CREATE TABLE quick_presets (
     sort_order INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE capture_cache (
+CREATE TABLE IF NOT EXISTS capture_cache (
     host_id      TEXT NOT NULL,
     session_name TEXT NOT NULL,
     content      TEXT NOT NULL,
