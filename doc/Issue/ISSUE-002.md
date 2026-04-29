@@ -19,7 +19,7 @@ created: 2026-04-28
 
 - [x] 5 個 Tauri command 實作:`list_hosts` / `create_host` / `update_host` / `delete_host` / `import_private_key`
 - [→] `test_connection` **stub 中** — `Err("test_connection 暫時下線 ...")`,等 M1b/1.5 接回 russh(NOTES.md D-6)
-- [ ] (繼承自 ISSUE-001) 第一次 `list_hosts` invoke 後,DB 確實落在 `%APPDATA%\dev.kirinchen.piermux\piermux.db`,4 張表都建 — owner Windows 驗
+- [x] (繼承自 ISSUE-001) 第一次 `list_hosts` invoke 後,DB 確實落在 `%APPDATA%\dev.kirinchen.piermux\piermux.db`,4 張表都建 — owner 2026-04-29 在 M1b/2 加完 host 後驗證 ✓
 
 ### M1b/1.5 spike(平行做)
 

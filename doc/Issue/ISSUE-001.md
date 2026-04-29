@@ -19,7 +19,7 @@ created: 2026-04-28
 - [x] `src-tauri/Cargo.toml` 設 Rust edition 2021,MSRV 1.80
 - [x] `tauri-plugin-sql` 接好,跑 [SPEC §5](../SPEC.md) schema 為第一份 migration:`hosts` / `ui_preferences` / `quick_presets` / `capture_cache` 四張表
 - [x] `npm run tauri dev` 在 Windows 起得來 — owner 2026-04-28 跑通(2 分鐘 cargo build,`piermux.exe` 起來)
-- [→] DB 預設位置:`%APPDATA%\dev.kirinchen.piermux\piermux.db` — **搬到 ISSUE-002 驗**(tauri-plugin-sql lazy init,要 frontend 第一次 `Database.load()` 才建 DB,M1a App.tsx 沒 invoke 所以不會建)
+- [x] DB 預設位置:`%APPDATA%\dev.kirinchen.piermux\piermux.db` — owner 2026-04-29 在 M1b/2 加完第一個 host 後驗證,row 從 `list_hosts` 讀回來,確認 DB + table 都建在對的位置
 - [x] commit 訊息 `M1a: tauri scaffold + sqlite migration` — commit `9b09716`
 
 ## Investigation / Notes

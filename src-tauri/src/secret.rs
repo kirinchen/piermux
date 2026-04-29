@@ -16,6 +16,9 @@ pub fn store_password(host_id: &str, password: &str) -> Result<()> {
     Ok(())
 }
 
+// 留給 M1b/1.5 russh 接回後的 test_connection / 跟 M1f attach 用 —
+// 那邊要從 keyring 讀回密碼餵給 SSH session(對 auth_type='password' 的 host)
+#[allow(dead_code)]
 pub fn read_password(host_id: &str) -> Result<Option<String>> {
     match entry(host_id, "password")?.get_password() {
         Ok(p) => Ok(Some(p)),

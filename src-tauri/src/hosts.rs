@@ -133,6 +133,8 @@ pub async fn delete_host(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
+// 留給 M1f attach 成功後 call(SPEC §3.1 tree view 顯示「last activity」要這個欄位)
+#[allow(dead_code)]
 pub async fn touch_last_used(pool: &SqlitePool, id: &str) -> Result<()> {
     let now = Utc::now().to_rfc3339();
     sqlx::query("UPDATE hosts SET last_used_at = ? WHERE id = ?")

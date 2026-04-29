@@ -8,6 +8,9 @@
 use anyhow::{anyhow, Result};
 use std::path::Path;
 
+// 欄位現在 stub 期間不會讀,但 commands.rs 已經在塞值,M1b/1.5 接回 russh
+// 會直接讀。先標 allow,讓 cargo clippy -- -D warnings 過得去。
+#[allow(dead_code)]
 pub enum AuthMaterial<'a> {
     Password(&'a str),
     Key {
