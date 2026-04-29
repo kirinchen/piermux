@@ -21,6 +21,9 @@ pub struct Session {
 pub enum HostConnectionStatus {
     Connected,
     Disconnected,
+    // M1c mock 直接回 connected/disconnected,沒有過渡 — 這個 variant
+    // 是給未來 async test_connection 中間態用(M1d+ 真連線時 UI 顯示 spinner)
+    #[allow(dead_code)]
     Connecting,
 }
 
@@ -77,9 +80,18 @@ pub async fn open_pool(db_path: &Path) -> Result<SqlitePool> {
 }
 
 async fn apply_schema(pool: &SqlitePool) -> Result<()> {
-    for stmt in SCHEMA_SQL.split(';') {
+    // 先逐行 strip `--` 註解(否則 split(';') 第一個 chunk 會是「leading
+    // 註解 + 第一個 CREATE TABLE」,starts_with("--") 把整個 chunk 含
+    // CREATE TABLE 一起跳掉 → hosts 永遠沒建)
+    let cleaned: String = SCHEMA_SQL
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for stmt in cleaned.split(';') {
         let s = stmt.trim();
-        if s.is_empty() || s.starts_with("--") {
+        if s.is_empty() {
             continue;
         }
         sqlx::query(s)
