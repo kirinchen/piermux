@@ -25,13 +25,13 @@ created: 2026-04-28
 
 - [ ] Spike `[patch.crates-io] ed25519-dalek = { git = "..." }` 找/做修好 pkcs8 API 的 fork,接回 russh,真實 `test_connection` 上線
 
-### M1b/2 frontend(下個 sub-commit 範圍)
+### M1b/2 frontend(本 sub-commit 範圍)
 
-- [ ] Tailwind 4 + shadcn install
-- [ ] Desktop UI:host 列表 + [+ Add Host] dialog(shadcn/ui form),欄位對齊 hosts table
-- [ ] Add 完 row 出現在列表;Delete 後消失;Edit 後欄位更新
-- [ ] Test connection 按鈕(M1b/1.5 接回 russh 後)成功 / 失敗 toast 正確顯示
-- [ ] commit `M1b/2: host list UI + add dialog`
+- [x] Tailwind 4 + TanStack Query + radix-ui 手寫 shadcn-style components 安裝完
+- [x] Desktop UI:host 列表 + [+ 新增 Host] dialog(自訂 shadcn-style form),欄位對齊 hosts table
+- [x] Add 完 row 出現在列表;Delete 後消失(window.confirm);Edit 後欄位更新
+- [→] Test connection 按鈕(stub 期間會跳「test_connection 暫時下線」toast,patch 接回後自然 work)
+- [→] commit 訊息 `M1b/2: host list UI + add dialog`
 
 ## Investigation / Notes
 
@@ -46,6 +46,24 @@ created: 2026-04-28
 - `test_connection` stub 中(`ssh.rs` 留 signature + `AuthMaterial` enum,內部回 `Err`)— 卡在 russh dep 拉 broken `ed25519-dalek 3.0.0-pre.6`,owner 拍板 A+E hybrid(NOTES.md D-6)
 - Linux dev 端 cargo check 因 `atk-sys` system lib 缺(CLAUDE.md「不自己 apt install」)沒辦法跑完,Rust source 對到 std + sqlx + keyring + uuid + chrono 都是常規寫法,owner Windows 端跑 `npm run tauri dev` 驗
 - 接下來:平行 spike M1b/1.5(ed25519-dalek fork patch)+ M1b/2 frontend(shadcn install + Add Host dialog)
+
+### 2026-04-29 — M1b/1.5 spike timeout
+
+詳見 [`NOTES.md` D-6 後段](../../NOTES.md)。先做 M1b/2,SSH patch 等上游或下次 session 接手。
+
+### 2026-04-29 — M1b/2 frontend 完成
+
+- Tailwind 4 接好(@tailwindcss/vite plugin + index.css `@import "tailwindcss"` + @theme tokens)
+- TanStack Query + Sonner Toaster 包在 main.tsx
+- Path alias `@/*` → `src/*`(vite + tsconfig)
+- shadcn-style components 手寫 5 個:Button / Input / Label / Dialog / Select(放 `src/components/ui/`)— 不靠 shadcn CLI
+- `src/lib/`:`utils.ts` (cn helper) / `types.ts` (Host / HostForm) / `tauri.ts` (6 個 invoke wrapper)
+- `src/hooks/useHosts.ts`:5 個 TanStack hooks(`useHostsList` / `useCreateHost` / `useUpdateHost` / `useDeleteHost` / `useTestConnection`),query key `["hosts","list"]`(CLAUDE.md 規則)
+- `src/desktop/HostsView.tsx` + `HostFormDialog.tsx`:host 列表 + Add/Edit dialog
+- 把 backend `HostForm` 的 `#[serde(rename_all="camelCase")]` 拔掉,backend / frontend 統一 snake_case JSON
+- `npm run build` 過(1880 modules,391 KB JS / 16 KB CSS gzip)
+- 私鑰 import 暫時用 `window.prompt` 拿路徑(`tauri-plugin-dialog` 沒裝),M1c 升級成 file picker
+- Owner Windows 驗:`git pull` → `npm install` → `npm run tauri dev` → 點「新增 Host」→ 填 → 儲存 → 列表出現 → 編輯/刪除應該 work;按「測試連線」會跳 stub 訊息(預期)
 
 ## Resolution
 

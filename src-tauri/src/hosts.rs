@@ -22,7 +22,6 @@ pub struct Host {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct HostForm {
     pub display_name: String,
     pub ssh_host: String,

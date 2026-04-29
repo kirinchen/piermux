@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+/* shadcn/ui-compatible theme tokens(灰階為主,M1c 真做 UI 時再加自訂) */
+@theme {
+  --color-background: oklch(99% 0 0);
+  --color-foreground: oklch(15% 0 0);
+  --color-muted: oklch(96% 0 0);
+  --color-muted-foreground: oklch(45% 0 0);
+  --color-border: oklch(90% 0 0);
+  --color-primary: oklch(20% 0 0);
+  --color-primary-foreground: oklch(98% 0 0);
+  --color-destructive: oklch(60% 0.2 25);
+  --color-destructive-foreground: oklch(98% 0 0);
+
+  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-background: oklch(15% 0 0);
+    --color-foreground: oklch(95% 0 0);
+    --color-muted: oklch(20% 0 0);
+    --color-muted-foreground: oklch(65% 0 0);
+    --color-border: oklch(25% 0 0);
+    --color-primary: oklch(95% 0 0);
+    --color-primary-foreground: oklch(15% 0 0);
+  }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+}

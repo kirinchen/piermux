@@ -29,6 +29,12 @@ _(agents and humans append dated notes as they work)_
 - 建 `NOTES.md`(closes task.md `T-1`)。
 - **M1a (ISSUE-001) `resolved`** — agent 在 Linux 把 scaffold + plugin-sql + migration 寫好(commit `9b09716`),VS Code launch 配套(`81067e2`),owner 在 Windows `npm run tauri dev` 跑通(2 分鐘 cargo build)。DB 路徑驗證 lazy init 留給 ISSUE-002 第一個 `list_hosts` invoke 時驗。
 
+### 2026-04-29
+- **M1b/1 backend(commit `e0c6994`)**:5 個 Tauri commands(list/create/update/delete/import_private_key)+ hosts repo(sqlx pool + apply_schema)+ keyring 接好。test_connection stub。Cargo.toml 加 7 deps(uuid/keyring/sqlx/tokio/anyhow/chrono),MSRV 1.80→1.85。
+- **M1b/1.5 spike timeout(commit `957cdb0`)**:russh 0.60.1 拉的 ed25519-dalek 3.0.0-pre.6 跟新版 pkcs8 API 不容,upstream master 還沒修。NOTES.md D-6。
+- **M1b/2 frontend(本 commit)**:Tailwind 4 + TanStack Query + 手寫 shadcn-style 5 個 components + HostsView + HostFormDialog + 5 個 hooks。`npm run build` 過。
+- **ISSUE-002 status**:`in_progress`(test_connection acceptance 還沒 met,等 M1b/1.5)。
+
 ## Retrospective
 
 _(drafted when status transitions to `review`; filled when `done`)_

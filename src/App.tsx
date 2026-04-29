@@ -1,15 +1,11 @@
-import "./App.css";
+import { HostsView } from "./desktop/HostsView";
+
+// M1b 階段:desktop only,直接 render HostsView。
+// SPEC §7.2 之後會在 App.tsx 加 platform routing(desktop / android),
+// 現在 platform = desktop 就好(M2 才需要)。
 
 function App() {
-  return (
-    <main className="container">
-      <h1>piermux</h1>
-      <p>跨多機 tmux session 的 GUI 快速 attach 工具。</p>
-      <p style={{ opacity: 0.6, fontSize: "0.9em" }}>
-        M1a scaffold — UI 從 M1b (host CRUD) 起接。
-      </p>
-    </main>
-  );
+  return <HostsView />;
 }
 
 export default App;
