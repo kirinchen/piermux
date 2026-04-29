@@ -38,6 +38,17 @@ export const emptyHostForm = (): HostForm => ({
   sort_order: 0,
 });
 
+// Mirrors src-tauri/src/hosts.rs Session
+export type Session = {
+  name: string;
+  attached: boolean;
+  activity: string; // RFC3339
+  windows: number;
+};
+
+// Mirrors src-tauri/src/hosts.rs HostConnectionStatus
+export type HostConnectionStatus = "connected" | "disconnected" | "connecting";
+
 export const hostToForm = (h: Host): HostForm => ({
   display_name: h.display_name,
   ssh_host: h.ssh_host,

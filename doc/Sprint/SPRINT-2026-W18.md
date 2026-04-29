@@ -32,8 +32,12 @@ _(agents and humans append dated notes as they work)_
 ### 2026-04-29
 - **M1b/1 backend(commit `e0c6994`)**:5 個 Tauri commands(list/create/update/delete/import_private_key)+ hosts repo(sqlx pool + apply_schema)+ keyring 接好。test_connection stub。Cargo.toml 加 7 deps(uuid/keyring/sqlx/tokio/anyhow/chrono),MSRV 1.80→1.85。
 - **M1b/1.5 spike timeout(commit `957cdb0`)**:russh 0.60.1 拉的 ed25519-dalek 3.0.0-pre.6 跟新版 pkcs8 API 不容,upstream master 還沒修。NOTES.md D-6。
-- **M1b/2 frontend(本 commit)**:Tailwind 4 + TanStack Query + 手寫 shadcn-style 5 個 components + HostsView + HostFormDialog + 5 個 hooks。`npm run build` 過。
+- **M1b/2 frontend(commit `40930b3`)**:Tailwind 4 + TanStack Query + 手寫 shadcn-style 5 個 components + HostsView + HostFormDialog + 5 個 hooks。`npm run build` 過。
 - **ISSUE-002 status**:`in_progress`(test_connection acceptance 還沒 met,等 M1b/1.5)。
+- Owner 在 Windows 端跑 M1b/2,新增 host work + DB 落到對的位置 ✓(closes ISSUE-001 acceptance #5)。test_connection stub 訊息照預期。
+- **dead_code warnings 修(commit `7cd3f3d`)**:`touch_last_used` / `read_password` / `AuthMaterial` 欄位加 `#[allow(dead_code)]` + comment 解釋等 M1c+ 用。
+- **M1c 起步(本 commit)**:owner 拍板「先 4 後 2/3 等 1」 — 路徑 4 = UI 用 mock SSH backend 推進視覺。加 `Session` / `HostConnectionStatus` types + `sessions_mock.rs` backend module + `HostTree` / `SessionPanel` 元件 + `HostsView` 改 split layout。Frontend 跟 backend contract 從一開始就跟最終一樣,SSH unblock 後只換 backend 實作。
+- **ISSUE-003 status**:`in_progress`(real SSH 等 M1b/1.5)。
 
 ## Retrospective
 

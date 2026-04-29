@@ -7,6 +7,23 @@ use uuid::Uuid;
 
 const SCHEMA_SQL: &str = include_str!("../migrations/0001_initial.sql");
 
+// 對齊 SPEC §6.2 list_sessions 回傳。M1c 是 mock,M1d 開始真的接 SSH。
+#[derive(Debug, Serialize, Clone)]
+pub struct Session {
+    pub name: String,
+    pub attached: bool,
+    pub activity: String, // RFC3339,frontend format 成相對時間
+    pub windows: i64,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostConnectionStatus {
+    Connected,
+    Disconnected,
+    Connecting,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct Host {
     pub id: String,
