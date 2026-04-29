@@ -174,7 +174,7 @@ pub async fn touch_last_used(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_one(pool: &SqlitePool, id: &str) -> Result<Host> {
+pub async fn fetch_one(pool: &SqlitePool, id: &str) -> Result<Host> {
     let sql = format!("SELECT {SELECT_COLUMNS} FROM hosts WHERE id = ?");
     let host = sqlx::query_as::<_, Host>(&sql)
         .bind(id)

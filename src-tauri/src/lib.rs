@@ -1,7 +1,7 @@
 mod commands;
 mod hosts;
 mod secret;
-mod sessions_mock;
+mod sessions;
 mod ssh;
 
 use tauri::Manager;
@@ -33,9 +33,9 @@ pub fn run() {
             commands::delete_host,
             commands::test_connection,
             commands::import_private_key,
-            // M1c MOCK — 等 SSH unblock 後從 sessions_mock 改指真的實作
-            sessions_mock::list_sessions,
-            sessions_mock::host_status,
+            // M1c real(makiko exec):取代之前的 sessions_mock
+            sessions::list_sessions,
+            sessions::host_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -9,7 +9,9 @@
 // - test_connection 跑 `whoami` 確認 channel 可開、auth + exec 全鏈路通
 
 use anyhow::{anyhow, bail, Result};
-use makiko::{AuthPasswordResult, AuthPubkeyResult, Client, ClientConfig, ClientEvent};
+use makiko::{
+    AuthPasswordResult, AuthPubkeyResult, Client, ClientConfig, ClientEvent, SessionEvent,
+};
 use std::path::Path;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -132,4 +134,133 @@ pub async fn test_connection(
     drive.abort();
 
     Ok(())
+}
+
+/// 連 + auth + exec command + 把 stdout 收齊 + 收尾。
+/// 給 list_sessions / capture_session 等 backend command 用。
+///
+/// M1c 階段:每個 call 開一條新 SSH。SPEC §9.2 講「每 host 一條 persistent
+/// connection」是 M1d capture 並發控制要做的優化,這裡先簡單。
+pub async fn run_command(
+    host: &str,
+    port: u16,
+    user: &str,
+    auth: AuthMaterial<'_>,
+    cmd: &str,
+) -> Result<String> {
+    let stream = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port)))
+        .await
+        .map_err(|_| anyhow!("tcp connect timeout ({}s)", CONNECT_TIMEOUT.as_secs()))?
+        .map_err(|e| anyhow!("tcp connect: {e}"))?;
+
+    let config = ClientConfig::default_compatible_less_secure();
+    let (client, mut receiver, future) =
+        Client::open(stream, config).map_err(|e| anyhow!("open ssh client: {e}"))?;
+    let drive = tokio::spawn(async move {
+        let _ = future.await;
+    });
+
+    // server pubkey accept(M1b 一律接受)
+    loop {
+        match receiver
+            .recv()
+            .await
+            .map_err(|e| anyhow!("recv server event: {e}"))?
+        {
+            Some(ClientEvent::ServerPubkey(_pubkey, accept_tx)) => {
+                accept_tx.accept();
+                break;
+            }
+            Some(_) => continue,
+            None => bail!("server closed before pubkey exchange"),
+        }
+    }
+
+    // auth(複用 test_connection 的邏輯,DRY 留給之後 refactor)
+    do_auth(&client, user, auth).await?;
+
+    // 開 session + exec + 收 stdout
+    let (session, mut sess_rx) = client
+        .open_session(makiko::ChannelConfig::default())
+        .await
+        .map_err(|e| anyhow!("open session: {e}"))?;
+    session
+        .exec(cmd.as_bytes())
+        .map_err(|e| anyhow!("exec request: {e}"))?
+        .wait()
+        .await
+        .map_err(|e| anyhow!("exec wait: {e}"))?;
+
+    let mut stdout = Vec::<u8>::new();
+    let mut stderr = Vec::<u8>::new();
+    let mut exit_code: Option<i32> = None;
+    while let Some(event) = sess_rx
+        .recv()
+        .await
+        .map_err(|e| anyhow!("recv session event: {e}"))?
+    {
+        match event {
+            SessionEvent::StdoutData(bytes) => stdout.extend_from_slice(&bytes),
+            SessionEvent::StderrData(bytes) => stderr.extend_from_slice(&bytes),
+            SessionEvent::ExitStatus(code) => exit_code = Some(code as i32),
+            SessionEvent::Eof => break,
+            _ => continue,
+        }
+    }
+
+    drop(client);
+    drive.abort();
+
+    if let Some(code) = exit_code {
+        if code != 0 {
+            let stderr_str = String::from_utf8_lossy(&stderr);
+            bail!("exec `{cmd}` exit code {code}: {stderr_str}");
+        }
+    }
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
+}
+
+// 把 test_connection 的 auth 抽出給 run_command 共用
+async fn do_auth(client: &Client, user: &str, auth: AuthMaterial<'_>) -> Result<()> {
+    match auth {
+        AuthMaterial::Password(pw) => {
+            let result = client
+                .auth_password(user.to_string(), pw.to_string())
+                .await
+                .map_err(|e| anyhow!("password auth request: {e}"))?;
+            match result {
+                AuthPasswordResult::Success => Ok(()),
+                AuthPasswordResult::Failure(_) => bail!("password authentication failed"),
+                AuthPasswordResult::ChangePassword(_) => {
+                    bail!("server requires password change");
+                }
+            }
+        }
+        AuthMaterial::Key { path, passphrase } => {
+            let pem = std::fs::read(path).map_err(|e| anyhow!("read key {path:?}: {e}"))?;
+            let privkey: makiko::Privkey = match passphrase {
+                None => match makiko::keys::decode_pem_privkey_nopass(&pem)
+                    .map_err(|e| anyhow!("decode key (no passphrase): {e}"))?
+                {
+                    makiko::keys::DecodedPrivkeyNopass::Privkey(pk) => pk,
+                    _ => bail!("key is encrypted, please provide passphrase"),
+                },
+                Some(pp) => makiko::keys::decode_pem_privkey(&pem, pp.as_bytes())
+                    .map_err(|e| anyhow!("decode key with passphrase: {e}"))?,
+            };
+            let algo: &'static makiko::pubkey::PubkeyAlgo = match &privkey {
+                makiko::Privkey::Ed25519(_) => &makiko::pubkey::SSH_ED25519,
+                makiko::Privkey::Rsa(_) => &makiko::pubkey::RSA_SHA2_256,
+                _ => bail!("M1b 暫只支援 Ed25519 / RSA 私鑰;ECDSA/DSA 之後補"),
+            };
+            let result = client
+                .auth_pubkey(user.to_string(), privkey, algo)
+                .await
+                .map_err(|e| anyhow!("pubkey auth request: {e}"))?;
+            match result {
+                AuthPubkeyResult::Success => Ok(()),
+                AuthPubkeyResult::Failure(_) => bail!("pubkey authentication failed"),
+            }
+        }
+    }
 }
