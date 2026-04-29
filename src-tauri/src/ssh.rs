@@ -81,14 +81,31 @@ pub async fn test_connection(
         }
         AuthMaterial::Key { path, passphrase } => {
             let pem = std::fs::read(path).map_err(|e| anyhow!("read key {path:?}: {e}"))?;
-            let privkey = match passphrase {
-                None => makiko::keys::decode_pem_privkey_nopass(&pem)
-                    .map_err(|e| anyhow!("decode key (no passphrase): {e}"))?,
+            // decode_pem_privkey_nopass 回 DecodedPrivkeyNopass enum,
+            // decode_pem_privkey 回 Privkey 直接 — 兩條 path 統一拿到 Privkey
+            let privkey: makiko::keys::Privkey = match passphrase {
+                None => match makiko::keys::decode_pem_privkey_nopass(&pem)
+                    .map_err(|e| anyhow!("decode key (no passphrase): {e}"))?
+                {
+                    makiko::keys::DecodedPrivkeyNopass::Privkey(pk) => pk,
+                    _ => bail!("key is encrypted, please provide passphrase"),
+                },
                 Some(pp) => makiko::keys::decode_pem_privkey(&pem, pp.as_bytes())
                     .map_err(|e| anyhow!("decode key with passphrase: {e}"))?,
             };
+
+            // makiko 的 auth_pubkey 要 explicit 演算法。挑 modern preset:
+            // - Ed25519 → SSH_ED25519
+            // - RSA → SHA2-256(現代 ssh server 都接,SHA1 廢棄)
+            // - 其他類型(ECDSA / Dsa)M1b 不支援,owner 撞到再補
+            let algo: &'static makiko::pubkey::PubkeyAlgo = match &privkey {
+                makiko::keys::Privkey::Ed25519(_) => &makiko::pubkey::SSH_ED25519,
+                makiko::keys::Privkey::Rsa(_) => &makiko::pubkey::RSA_SHA2_256,
+                _ => bail!("M1b 暫只支援 Ed25519 / RSA 私鑰;ECDSA/DSA 之後補"),
+            };
+
             let result = client
-                .auth_pubkey(user.to_string(), privkey)
+                .auth_pubkey(user.to_string(), privkey, algo)
                 .await
                 .map_err(|e| anyhow!("pubkey auth request: {e}"))?;
             match result {
