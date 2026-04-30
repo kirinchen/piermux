@@ -15,8 +15,8 @@ Desktop 主畫面左邊 tree 顯示「所有 host × 所有 session」,連線狀
 
 ## Acceptance Criteria
 
-- [~] `list_sessions(host_id)` Tauri command — **M1c MOCK**(`sessions_mock.rs`),回 hard-coded sessions 對應 host_id hash。SSH unblock 後從 `sessions_mock` 改指真實 `tmux list-sessions` 實作,frontend / `Session` type / hook / UI 都不變
-- [~] 連線狀態 `HostConnectionStatus` enum (connected / disconnected / connecting) + `host_status(host_id)` 命令(MOCK)。UI ✓ (CheckCircle2) / ⚠ (AlertTriangle) / ○ (Loader2 spinning)
+- [~] `list_sessions(host_id)` Tauri command — **M1c real shipped 2026-04-30 commit `bf6bf44`**(`sessions.rs` 取代 `sessions_mock.rs`)。`ssh::run_command` 跑 `tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_windows}'` + parse_sessions 切 `|` + epoch → RFC3339。**等 owner 解 keyring bug 後驗到真 sessions 列表才勾**
+- [~] 連線狀態 `HostConnectionStatus` enum + `host_status(host_id)` 命令 — **M1c real shipped**:host_status 內部跑 `ssh::test_connection`,Ok→Connected / Err→Disconnected。**等 keyring 解後 owner 看到 mint/VPS 變綠 ✓ 才勾**
 - [x] Desktop tree component — 自寫 collapsible(useState<Set<string>> + ChevronRight/Down,沒裝 radix collapsible),兩層顯示 host → sessions,展開才 lazy fetch
 - [x] 每個 session 顯示 attached / idle 狀態 + 最後活動相對時間(`Intl.RelativeTimeFormat zh-TW`,沒加 dep)
 - [x] Click session → 右側 `SessionPanel` 顯示 host info + session metadata + M1d capture placeholder
@@ -37,3 +37,9 @@ Desktop 主畫面左邊 tree 顯示「所有 host × 所有 session」,連線狀
 - 相對時間用 `Intl.RelativeTimeFormat`(原生,沒加 `date-fns` dep — 比之前計畫更簡)
 
 **剩下開放:** acceptance 兩條 `[~]`(real list_sessions / host_status)等 ed25519-dalek 之後 SSH 接回。整個 issue → resolved 條件 = SSH 接回後 + `sessions_mock` 換掉 + 跑得起來。
+
+### 2026-04-30 — M1c real shipped(commit `bf6bf44`,backend 換成 makiko)
+
+`sessions.rs` 取代 `sessions_mock.rs`。`ssh::run_command` 共用 helper(連 + auth + open_session + exec + 收 SessionEvent stdout/stderr/exit + 收尾)。`build_auth` 從 hosts table 跟 keyring 拉憑證。`useHostStatus` 加 `staleTime: 30_000` 避免每次 mount 重 probe。
+
+**Blocked by keyring bug** — list_sessions/host_status 對 password-auth 的 host 都會撞「password not in keyring」。詳見 ISSUE-002 收尾段 + `task.md` 進行中區。Owner workaround / 真 fix 之後就能驗。

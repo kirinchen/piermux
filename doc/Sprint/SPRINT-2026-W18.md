@@ -3,7 +3,7 @@ id: SPRINT-2026-W18
 start: 2026-04-27
 end: 2026-05-03
 goal: "Land M1a (Tauri scaffold + DB) and M1b (Host CRUD + Test Connection); backfill remaining M1c-M1h to backlog"
-issues: [ISSUE-001, ISSUE-002]
+issues: [ISSUE-001, ISSUE-002, ISSUE-003]
 status: active
 ---
 
@@ -38,6 +38,15 @@ _(agents and humans append dated notes as they work)_
 - **dead_code warnings 修(commit `7cd3f3d`)**:`touch_last_used` / `read_password` / `AuthMaterial` 欄位加 `#[allow(dead_code)]` + comment 解釋等 M1c+ 用。
 - **M1c 起步(本 commit)**:owner 拍板「先 4 後 2/3 等 1」 — 路徑 4 = UI 用 mock SSH backend 推進視覺。加 `Session` / `HostConnectionStatus` types + `sessions_mock.rs` backend module + `HostTree` / `SessionPanel` 元件 + `HostsView` 改 split layout。Frontend 跟 backend contract 從一開始就跟最終一樣,SSH unblock 後只換 backend 實作。
 - **ISSUE-003 status**:`in_progress`(real SSH 等 M1b/1.5)。
+
+### 2026-04-30
+- **M1b/1.5 D-7 makiko swap(commits `9fd5004` / `6170436` / `e22ebf5`)**:owner 拍板「換 SSH lib」,從 russh 切到 makiko 0.2.5(stable,不踩 pre-release dep)。SPEC §13 deviation 寫進 NOTES.md D-7。Owner Windows 端 cargo build + test_connection 真實連線通過 ✓。
+- **apply_schema fix(commit `ba520cd`)**:fresh DB scenario 抓到 bug — split SQL by `;` 後第一個 chunk 含 leading `--` 註解 + `CREATE TABLE hosts (...)`,被 `starts_with("--")` filter 整段 skip → hosts table 不會建。改成先逐行 strip `--` 註解再 split。
+- **M1c real(commit `bf6bf44`)**:sessions backend 從 mock 換成真 makiko 實作。加 `ssh::run_command(host, port, user, auth, cmd) -> Result<String>` 共用 helper。`sessions.rs` 取代 `sessions_mock.rs`,跑 `tmux list-sessions -F` 拿格式化輸出再 parse。`useHostStatus` 加 `staleTime: 30_000` 避免每次 mount 都重 SSH probe。
+- **keyring bug surfaced(workaround + create_host validation `b3f5395`)**:owner 創 host 後 list_sessions 報「password not in keyring」。`create_host` 加 validation 防再發生,workaround 是 owner 編輯既有 host 重打密碼。**等 owner 驗收 workaround 是否有效**;若無效則是 keyring 3.6.3 對 Windows Credential Manager 邊角問題,要在 `secret.rs` 加 logging debug。
+- **handoff prep(本 commit)**:NOTES.md D-8 寫 handoff briefing,ISSUE-002/003 acceptance 同步現況,task.md 加當前 actionable + M1d 預備。Owner 評估換 Windows-local agent 接手(更快 cargo build + tauri dev iterate)。
+- **ISSUE-002 status**:`in_progress`(差最後 keyring 收尾就 resolved)。
+- **ISSUE-003 status**:`in_progress`(等 keyring + 真 list_sessions 驗)。
 
 ## Retrospective
 

@@ -15,23 +15,27 @@ created: 2026-04-28
 
 ## Acceptance Criteria
 
-### M1b/1 backend(本 sub-commit 範圍)
+### M1b/1 backend(完成)
 
 - [x] 5 個 Tauri command 實作:`list_hosts` / `create_host` / `update_host` / `delete_host` / `import_private_key`
-- [→] `test_connection` **stub 中** — `Err("test_connection 暫時下線 ...")`,等 M1b/1.5 接回 russh(NOTES.md D-6)
-- [x] (繼承自 ISSUE-001) 第一次 `list_hosts` invoke 後,DB 確實落在 `%APPDATA%\dev.kirinchen.piermux\piermux.db`,4 張表都建 — owner 2026-04-29 在 M1b/2 加完 host 後驗證 ✓
+- [x] `test_connection` 真實實作 — makiko 0.2.5(D-7 deviation 從 russh 換)。Owner 2026-04-30 Windows 端真實連線驗 ✓
+- [x] (繼承自 ISSUE-001) 第一次 `list_hosts` invoke 後,DB 確實落在 `%APPDATA%\dev.kirinchen.piermux\piermux.db`,4 張表都建 ✓
 
-### M1b/1.5 spike(平行做)
+### M1b/1.5 SSH unblock(完成,改走 D-7 而非原計畫 fork)
 
-- [ ] Spike `[patch.crates-io] ed25519-dalek = { git = "..." }` 找/做修好 pkcs8 API 的 fork,接回 russh,真實 `test_connection` 上線
+- [x] **改走 makiko swap** 而非 ed25519-dalek fork patch — D-6 spike timeout 後 owner 拍板換 lib,commits `9fd5004` / `6170436` / `e22ebf5`。Owner Windows 真實 SSH 連線 ✓
 
-### M1b/2 frontend(本 sub-commit 範圍)
+### M1b/2 frontend(完成)
 
 - [x] Tailwind 4 + TanStack Query + radix-ui 手寫 shadcn-style components 安裝完
 - [x] Desktop UI:host 列表 + [+ 新增 Host] dialog(自訂 shadcn-style form),欄位對齊 hosts table
 - [x] Add 完 row 出現在列表;Delete 後消失(window.confirm);Edit 後欄位更新
-- [→] Test connection 按鈕(stub 期間會跳「test_connection 暫時下線」toast,patch 接回後自然 work)
-- [→] commit 訊息 `M1b/2: host list UI + add dialog`
+- [x] Test connection 按鈕真實連線通過 ✓(2026-04-30 owner Windows 驗)
+- [x] commit 訊息 `M1b/2: host list UI + add dialog` — commit `40930b3`
+
+### 收尾(blocking resolved)
+
+- [~] keyring bug — `create_host` 後 keyring 沒寫入,list_sessions 抓不到密碼。`b3f5395` 加 validation 防再發生;owner workaround 是編輯既有 host 重打密碼。**等 owner 驗收 workaround 有效就 status → resolved**
 
 ## Investigation / Notes
 

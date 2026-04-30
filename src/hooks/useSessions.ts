@@ -17,5 +17,7 @@ export function useHostStatus(hostId: string) {
   return useQuery({
     queryKey: statusKey(hostId),
     queryFn: () => api.hostStatus(hostId),
+    // host_status 走真 SSH 連線,不要每次 mount 都重打 — 30 秒內 cache
+    staleTime: 30_000,
   });
 }
