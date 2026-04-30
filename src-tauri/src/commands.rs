@@ -20,6 +20,15 @@ pub async fn create_host(
     pool: State<'_, SqlitePool>,
     form: HostForm,
 ) -> Result<Host, String> {
+    // 創 host 之前先驗 — auth=password 必須有密碼,不然存進去會壞
+    // (form.password=None 時 store_password 不 call,後續 list_sessions
+    //  從 keyring 讀不到,使用者只能 edit 重設)
+    if form.auth_type == "password" {
+        let pw = form.password.as_deref().unwrap_or("").trim();
+        if pw.is_empty() {
+            return Err("auth_type=password 必須輸入密碼".to_string());
+        }
+    }
     let host = hosts::create_host(pool.inner(), &form)
         .await
         .map_err(|e| e.to_string())?;
