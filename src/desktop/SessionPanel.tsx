@@ -18,6 +18,7 @@ import type { CaptureResult, Host, Session } from "@/lib/types";
 import { api } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { relativeTime } from "@/lib/time";
+import { LineBufferInput } from "./LineBufferInput";
 
 type Props = {
   host: Host;
@@ -27,6 +28,7 @@ type Props = {
 };
 
 type Mode = "capture" | "attach";
+type InputMode = "line" | "stream";
 
 export function SessionPanel({ host, session, onBack }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -36,21 +38,28 @@ export function SessionPanel({ host, session, onBack }: Props) {
   // 預設 attach(NOTES.md D-10):進單一 session 視圖 = 我選定要操作。
   // 瀏覽用 grid view(host click)。要回唯讀 capture 按 [Detach]。
   const [mode, setMode] = React.useState<Mode>("attach");
+  // 預設 line(SPEC §3.5.1):line buffer 是 piermux 的核心賣點(M1g)。
+  // Stream mode 給 vim / less / 互動 prompt 用,toggle 切。
+  const [inputMode, setInputMode] = React.useState<InputMode>("line");
   const [attachId, setAttachId] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
 
   // M1f attach data dispatch — onData IDisposable,attach 退出時 dispose
   const onDataRef = React.useRef<IDisposable | null>(null);
+  // M1g inputMode 給 stable onData callback 用 — onData 只在 attach 開始時 wire
+  // 一次,inputMode 切換不重 wire,直接從 ref 看當下值
+  const inputModeRef = React.useRef<InputMode>(inputMode);
+  React.useEffect(() => {
+    inputModeRef.current = inputMode;
+  }, [inputMode]);
 
   // session 切換 / unmount 時把 mode reset 回 attach default(D-10)。
-  // attach effect 的 cleanup 會處理 detachSession 收尾,所以切 session 時:
-  // (1) attach effect cleanup → 舊 session detach
-  // (2) 這個 reset 把 mode 翻回 attach(若上次是 capture)
-  // (3) 新 session 的 attach effect 重新 spin up
+  // attach effect 的 cleanup 會處理 detachSession 收尾。
   React.useEffect(() => {
     return () => {
       setMode("attach");
+      setInputMode("line");
     };
   }, [host.id, session.name]);
 
@@ -110,11 +119,21 @@ export function SessionPanel({ host, session, onBack }: Props) {
     return () => disp.dispose();
   }, [mode, attachId]);
 
+  // M1g xterm.disableStdin 跟 mode + inputMode 走:
+  // - capture:disable(唯讀)
+  // - attach + line:disable(xterm 是 server output 顯示器,user 在下方
+  //   textarea 打字,xterm 不該攔截鍵盤)
+  // - attach + stream:enable(字元即時送)
+  React.useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    const enabled = mode === "attach" && inputMode === "stream";
+    term.options.disableStdin = !enabled;
+  }, [mode, inputMode]);
+
   // Capture 模式:拉一次 capture + 訂閱該 (host, session) event
   React.useEffect(() => {
     if (mode !== "capture") return;
-    const term = xtermRef.current;
-    if (term) term.options.disableStdin = true;
 
     const writeResult = (r: CaptureResult) => {
       const t = xtermRef.current;
@@ -153,7 +172,7 @@ export function SessionPanel({ host, session, onBack }: Props) {
     };
   }, [mode, host.id, session.name]);
 
-  // Attach 模式(M1f stream mode):attachSession + listen output + wire onData
+  // Attach 模式(M1f + M1g):attachSession + listen output + wire onData(stream-only)
   React.useEffect(() => {
     if (mode !== "attach") return;
     const term = xtermRef.current;
@@ -166,7 +185,6 @@ export function SessionPanel({ host, session, onBack }: Props) {
 
     const start = async () => {
       try {
-        term.options.disableStdin = false;
         term.clear();
         const cols = term.cols || 80;
         const rows = term.rows || 24;
@@ -191,15 +209,18 @@ export function SessionPanel({ host, session, onBack }: Props) {
           setMode("capture");
         });
 
-        // wire keyboard:每筆 onData 直送 backend(stream mode)
-        // 真正的 line buffer 是 M1g 才接,現在使用者打字會即時送過去 ——
-        // 適合 vim / less / interactive prompt;對 Claude Code 等 AI agent 對話
-        // **暫時還會踩 colony 那種「打到一半送出去」的坑**,M1g 補上就解。
+        // wire keyboard:
+        // - stream mode:每筆 onData 直送 backend(像 colony / vim)
+        // - line mode:onData 不應該 fire(disableStdin=true),但 xterm
+        //   有時還是會丟某些 key event。為了保險,從 inputModeRef 看當下
+        //   值,line mode 直接 noop
         const disp = term.onData((data) => {
-          if (aid)
+          if (inputModeRef.current !== "stream") return;
+          if (aid) {
             api.writeToSession(aid, data).catch((err) => {
               console.warn("[SessionPanel] writeToSession failed", err);
             });
+          }
         });
         onDataRef.current = disp;
       } catch (err) {
@@ -221,8 +242,6 @@ export function SessionPanel({ host, session, onBack }: Props) {
         api.detachSession(idToClose).catch(() => {});
       }
       setAttachId(null);
-      const t = xtermRef.current;
-      if (t) t.options.disableStdin = true;
     };
   }, [mode, host.id, session.name]);
 
@@ -245,6 +264,15 @@ export function SessionPanel({ host, session, onBack }: Props) {
 
   const toggleMode = () => {
     setMode((m) => (m === "capture" ? "attach" : "capture"));
+  };
+
+  // M1g line buffer Send callback:把 buffer + \r 送出。\r 是 PTY 的 Enter
+  // (line discipline 翻 \n;符合 SPEC §7.3 範例 + 標準 PTY 行為)
+  const handleLineSend = (text: string) => {
+    if (!attachId) return;
+    api.writeToSession(attachId, text + "\r").catch((err) => {
+      toast.error(`Send 失敗:${String(err)}`);
+    });
   };
 
   return (
@@ -284,13 +312,17 @@ export function SessionPanel({ host, session, onBack }: Props) {
               )}
               {mode === "attach" && attachId && (
                 <>
-                  {" · "}attach id <code className="font-mono">{attachId.slice(0, 8)}</code>
+                  {" · "}attach id{" "}
+                  <code className="font-mono">{attachId.slice(0, 8)}</code>
                 </>
               )}
             </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {mode === "attach" && (
+            <InputModeToggle inputMode={inputMode} onChange={setInputMode} />
+          )}
           {mode === "capture" && (
             <Button
               size="sm"
@@ -313,7 +345,7 @@ export function SessionPanel({ host, session, onBack }: Props) {
             onClick={toggleMode}
             title={
               mode === "capture"
-                ? "進 attach 模式(雙向 PTY,stream 字元即時送)"
+                ? "進 attach 模式(雙向 PTY)"
                 : "退出 attach,回 capture 唯讀模式"
             }
           >
@@ -336,10 +368,18 @@ export function SessionPanel({ host, session, onBack }: Props) {
         <div ref={containerRef} className="absolute inset-0" />
       </main>
 
-      {mode === "attach" && (
+      {mode === "attach" && inputMode === "line" && (
+        // key 用 attachId 讓「切 attach session」時 component remount → 清 buffer
+        <LineBufferInput
+          key={attachId ?? "pending"}
+          onSend={handleLineSend}
+          disabled={!attachId}
+        />
+      )}
+      {mode === "attach" && inputMode === "stream" && (
         <footer className="border-t border-border bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-          ⚠ Stream mode — 字元即時送(M1g 後才有 line buffer);用 Ctrl+B d 離開
-          tmux 時建議用上方 Detach 按鈕,server 端的 tmux session 不會被關。
+          ⚠ Stream mode — 字元即時送(像 vim / less / 互動 prompt)。AI agent
+          對話建議切回 Line mode 避免「打到一半送出去」。
         </footer>
       )}
     </div>
@@ -358,5 +398,42 @@ function ModeBadge({ mode }: { mode: Mode }) {
     <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
       attach
     </span>
+  );
+}
+
+function InputModeToggle({
+  inputMode,
+  onChange,
+}: {
+  inputMode: InputMode;
+  onChange: (m: InputMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5 text-xs">
+      <button
+        type="button"
+        onClick={() => onChange("line")}
+        className={`rounded px-2 py-0.5 font-medium transition-colors ${
+          inputMode === "line"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        title="Line buffer:打字 → Enter 整段送出(預設,避免 colony 那種誤送)"
+      >
+        Line
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("stream")}
+        className={`rounded px-2 py-0.5 font-medium transition-colors ${
+          inputMode === "stream"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        title="Stream:字元即時送(vim / less / 互動 prompt 用)"
+      >
+        Stream
+      </button>
+    </div>
   );
 }

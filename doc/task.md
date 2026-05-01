@@ -27,11 +27,14 @@
 - 1 host × 3 session ship + grid view owner 已 ship 驗證 ✓
 - 3 host × 5 session refresh-all < 3 秒等之後加 host 才量得到
 
-### M1f 開工中(ISSUE-006,attach mode 基礎)
-- **Backend(本 commit):** `attach.rs` + 4 commands(`attach_session` / `write_to_session` / `resize_session` / `detach_session`)+ `AttachRegistry: Mutex<HashMap>` 存 attach 狀態,reader task 把 PTY 輸出 emit `attach-output-<id>` event
-- **Frontend(本 commit):** SessionPanel 加 `mode: 'capture'|'attach'` state,header [Attach]/[Detach] toggle + 模式 badge,attach 時 xterm `disableStdin = false` + `onData` → backend、`onResize` → backend、`attach-output-<id>` listener → `term.write`
-- **Stream mode**(預設,本 issue 範圍)— 字元即時送,M1g 才接 line buffer
-- **等 owner Windows 真實環境驗:** click [Attach] → tmux 重畫 + 打字 server 收到、Ctrl+C / vim / less 體驗、resize 重畫、[Detach] 切回 capture 且 server tmux session 不被關
+### M1f 完成 ✓(ISSUE-006,attach mode 基礎,owner 驗收 ✓)
+- Backend `attach.rs` + 4 commands `8338091` + 點 session = 預設 attach `4e9ff5b`(D-10)
+
+### M1g 開工中(ISSUE-007,line buffer 核心賣點)
+- **本 commit:** `LineBufferInput.tsx` 新元件(原生 textarea + IME isComposing 護欄)+ SessionPanel 加 `inputMode: 'line' | 'stream'` 切換 toggle,**預設 Line**(SPEC §3.5.1)
+- 走 SPEC §9.1「server output 唯讀區 + 下方獨立輸入框」fallback 設計(該 SPEC 原文認可「對 Claude Code 場景更直觀」)— 跳過 §7.3 onData hold 字元的 race / IME 坑
+- Send 內容 = buffer + `\r`(PTY Enter,line discipline 翻 `\n`)
+- **等 owner Windows 真實環境驗(ISSUE-007 完成標準):** attach Claude Code session → line mode 打一段中文 → Enter → Claude 收到完整訊息 + 回覆。**這是 piermux 為什麼存在的 acceptance 一條**
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速
@@ -62,9 +65,8 @@ ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - Matrix:`ubuntu-latest`(快 feedback)+ `windows-latest`(真 target)
 - **windows-latest job 是必要的**(因為 Linux 過不到 piermux 編譯)
 
-### T-spike-line-buffer Spike: line buffer × xterm.js(SPEC §9.1)
-Throwaway branch,5 行 minimal example 驗 xterm.js 攔 `term.onData` + 不送 server + 獨立 React input 顯示 buffer 跑通。結果寫 `NOTES.md` Spike log。
-**ISSUE-007 開工前必做**(CLAUDE.md「Vibe coding 第 3 條」)。
+### T-spike-line-buffer ✓ 不做(M1g 直接走 fallback 設計繞開)
+M1g 直接走 SPEC §9.1 結尾段提到的「server output 唯讀區 + 下方獨立輸入框」fallback 設計(SPEC 原文認可「對 Claude Code 場景更直觀」),不走 §7.3 範例的「攔截 xterm.onData 累積 buffer」approach,因此沒有 IME / focus 同步等 race 需要 spike。詳 ISSUE-007「2026-05-01 — 直接走 SPEC §9.1 fallback 路徑」段。
 
 ### T-spike-android-makiko Spike: makiko Android cross-compile(SPEC §9.3)
 原本是 russh,D-7 swap 成 makiko 後重點不變:
