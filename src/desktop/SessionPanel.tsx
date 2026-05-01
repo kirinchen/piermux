@@ -33,7 +33,9 @@ export function SessionPanel({ host, session, onBack }: Props) {
   const xtermRef = React.useRef<XTerm | null>(null);
   const fitRef = React.useRef<FitAddon | null>(null);
 
-  const [mode, setMode] = React.useState<Mode>("capture");
+  // 預設 attach(NOTES.md D-10):進單一 session 視圖 = 我選定要操作。
+  // 瀏覽用 grid view(host click)。要回唯讀 capture 按 [Detach]。
+  const [mode, setMode] = React.useState<Mode>("attach");
   const [attachId, setAttachId] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
@@ -41,10 +43,14 @@ export function SessionPanel({ host, session, onBack }: Props) {
   // M1f attach data dispatch — onData IDisposable,attach 退出時 dispose
   const onDataRef = React.useRef<IDisposable | null>(null);
 
-  // session 切換 / unmount 時把 mode reset 回 capture(避免殘留 attach)
+  // session 切換 / unmount 時把 mode reset 回 attach default(D-10)。
+  // attach effect 的 cleanup 會處理 detachSession 收尾,所以切 session 時:
+  // (1) attach effect cleanup → 舊 session detach
+  // (2) 這個 reset 把 mode 翻回 attach(若上次是 capture)
+  // (3) 新 session 的 attach effect 重新 spin up
   React.useEffect(() => {
     return () => {
-      setMode("capture");
+      setMode("attach");
     };
   }, [host.id, session.name]);
 

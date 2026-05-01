@@ -195,6 +195,27 @@ DB URL `sqlite:piermux.db` + tauri identifier `dev.kirinchen.piermux` → tauri-
 
 ---
 
+### 2026-05-01 — D-10 點 session 預設 attach(SPEC §2 偏離,owner 拍板)
+
+**SPEC §2:** 「預設點 session → capture(輕量)。按 [Attach] → 切到 attach 模式。」
+
+**現實 owner workflow + Avat.png mockup:**
+- Grid view(host click)已經承擔「全 host 一眼看 capture」的瀏覽角色
+- 進單一 session 視圖 = 「我選定這個要做事」(對 Claude Code 對話特別明顯)
+- 預設 capture 多一次點擊摩擦感大
+
+**改:** SessionPanel `mode` 預設 `'attach'` 而非 `'capture'`。`session-reset` useEffect 也改 reset 到 attach。要回唯讀 capture 按 [Detach] 即可,toggle 邏輯不動。
+
+**Trade-off / 已知缺點:**
+- 點到單一 session 立刻開 PTY(SSH connect + request_pty + tmux attach,~500ms-1s 第一次重畫)。誤點代價是一條短命 PTY,unmount 時 cleanup detach。實務 OK。
+- 對偶爾「我只想看不操作」的場景變得繞:必須先 attach 再 [Detach] 切 capture。可接受,grid view 還是輕量瀏覽主場。
+
+**為什麼是 D-level decision:** SPEC §2 是描述性的 UX 預設,不是 §3.5 line buffer 那種紅線。CLAUDE.md「動 SPEC 描述的核心 UX」要先問,owner 已透過 Avat.png mockup + 直接訊息確認過(2026-05-01)。
+
+**SPEC 怎麼處理:** 不直接改 SPEC §2(待 M3 polish 整理時 owner 統一決),NOTES D-10 留 deviation 記錄。
+
+---
+
 ### 2026-05-01 — D-9 keyring 沒寫入 = 沒接平台 backend(Windows agent 接手第一刀)
 
 **症狀:** owner 在 Windows 創 host b → test_connection ✓ → save → tree view 報「password not in keyring for host b — re-edit to set」。Re-edit dialog 密碼欄空白(只剩 placeholder 8 個 dot)。
