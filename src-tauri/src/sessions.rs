@@ -11,7 +11,7 @@ use crate::hosts::{self, Host, HostConnectionStatus, Session};
 use crate::secret;
 use crate::ssh::{self, AuthMaterial};
 
-const TMUX_LIST_FMT: &str =
+pub(crate) const TMUX_LIST_FMT: &str =
     "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_windows}'";
 
 #[tauri::command]
@@ -107,7 +107,7 @@ pub(crate) fn port_u16(host: &Host) -> Result<u16> {
         .map_err(|_| anyhow!("ssh_port out of range: {}", host.ssh_port))
 }
 
-fn parse_sessions(stdout: &str) -> Result<Vec<Session>> {
+pub(crate) fn parse_sessions(stdout: &str) -> Result<Vec<Session>> {
     stdout
         .lines()
         .filter(|l| !l.trim().is_empty())

@@ -10,11 +10,14 @@
 //
 // 失敗策略:
 // - 個別 session capture 失敗 → eprintln 後跳過,不影響同 host 其他 session
-// - 整 host list_sessions 失敗(SSH 不通)→ capture_host 回 Err;capture_all 內部 swallow,
-//   讓其他 host 照跑(對齊 SPEC §3.3「失敗 host 標 ⚠ 不影響其他」)
+// - 整 host list_sessions / connect 失敗(SSH 不通)→ capture_host 回 Err;
+//   capture_all 內部 swallow,讓其他 host 照跑(對齊 SPEC §3.3「失敗 host 標 ⚠ 不影響其他」)
 //
-// M1d 暫時每次 capture 都開新 SSH(`ssh::run_command`)。SPEC §9.2「每 host 一條
-// persistent SSH 連線」是後續優化,等 owner 量到 3 host × 5 session > 3 秒再做。
+// SSH 連線策略(SPEC §9.2):
+// - capture_session:單一 session → 用 `ssh::run_command`(1 connect, 1 exec)
+// - capture_host:**一個 host 一條 SSH connection**,在這條 connection 上跑
+//   list-sessions + N 個 capture-pane channel,用 `Semaphore(3)` 限速
+// - capture_all:對每 host 各自開 1 條 SSH 並行;host 之間 fully parallel
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
@@ -26,7 +29,7 @@ use tokio::sync::Semaphore;
 
 use crate::hosts::{self, Host};
 use crate::sessions;
-use crate::ssh;
+use crate::ssh::{self, SshSession};
 
 const HOST_CONCURRENCY: usize = 3;
 
@@ -116,14 +119,29 @@ async fn capture_host_inner(
     pool: &SqlitePool,
     host: Host,
 ) -> Result<Vec<CaptureResult>> {
-    let session_list = sessions::list_sessions_for(&host)
+    // 1. 一個 host 一條 SSH connection(SPEC §9.2)
+    let password = sessions::read_password_for(&host)?;
+    let auth = sessions::build_auth(&host, password.as_deref())?;
+    let port = sessions::port_u16(&host)?;
+    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
         .await
-        .with_context(|| format!("list sessions on host {}", host.display_name))?;
+        .with_context(|| format!("ssh connect to {}", host.display_name))?;
+    let ssh_session = Arc::new(ssh_session);
 
+    // 2. 在同一條 connection 跑 list-sessions
+    let list_stdout = ssh_session
+        .exec(sessions::TMUX_LIST_FMT)
+        .await
+        .with_context(|| format!("list sessions on {}", host.display_name))?;
+    let session_list = sessions::parse_sessions(&list_stdout)
+        .with_context(|| format!("parse session list on {}", host.display_name))?;
+
+    // 3. 同一條 connection 跑 N 個 capture-pane channel,Semaphore(3) 限速
     let semaphore = Arc::new(Semaphore::new(HOST_CONCURRENCY));
     let mut handles = Vec::with_capacity(session_list.len());
 
     for s in session_list {
+        let ssh_clone = ssh_session.clone();
         let host_clone = host.clone();
         let session_name = s.name;
         let semaphore_clone = semaphore.clone();
@@ -134,7 +152,7 @@ async fn capture_host_inner(
                 Ok(p) => p,
                 Err(_) => return None, // semaphore 不會被 close,實務上不會走這
             };
-            match capture_one(&host_clone, &session_name).await {
+            match capture_via_session(&ssh_clone, &host_clone, &session_name).await {
                 Ok(result) => {
                     if let Err(e) = write_cache(&pool_clone, &result).await {
                         eprintln!(
@@ -167,7 +185,34 @@ async fn capture_host_inner(
             results.push(r);
         }
     }
+    // 所有 task 跑完(不管成功失敗)後 Arc count 歸零 → SshSession Drop → drive abort
+    drop(ssh_session);
     Ok(results)
+}
+
+/// 在已連好的 SshSession 上跑 capture-pane,組 CaptureResult。
+/// 給 capture_host_inner 內部 task 用,免得每個 task 都重新 ssh::connect。
+async fn capture_via_session(
+    ssh_session: &SshSession,
+    host: &Host,
+    session_name: &str,
+) -> Result<CaptureResult> {
+    let cmd = format!(
+        "tmux capture-pane -t {}:0 -p -e -S -200",
+        shell_quote(session_name)
+    );
+    let stdout = ssh_session.exec(&cmd).await.with_context(|| {
+        format!(
+            "capture-pane '{}' on host {}",
+            session_name, host.display_name
+        )
+    })?;
+    Ok(CaptureResult {
+        host_id: host.id.clone(),
+        session_name: session_name.to_string(),
+        content: stdout,
+        captured_at: Utc::now().to_rfc3339(),
+    })
 }
 
 async fn capture_one(host: &Host, session_name: &str) -> Result<CaptureResult> {

@@ -7,6 +7,8 @@
 // - 接受 ANY server pubkey(M1b 階段不做 known_hosts;M1c+ 補)
 // - 支援 password 跟 pubkey(unencrypted + with passphrase)
 // - test_connection 跑 `whoami` 確認 channel 可開、auth + exec 全鏈路通
+// - `SshSession`(M1d):一條 SSH 連線多 channel,給 capture_host_inner 用
+//   (SPEC §9.2「每 host 一條 persistent SSH」),drop 時 drive task abort
 
 use anyhow::{anyhow, bail, Result};
 use makiko::{
@@ -15,6 +17,7 @@ use makiko::{
 use std::path::Path;
 use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -28,29 +31,52 @@ pub enum AuthMaterial<'a> {
     },
 }
 
-pub async fn test_connection(
+/// 一條已連 + 已 auth 的 SSH session。多 channel 共用,drop 時把 drive
+/// task abort。M1d capture_host_inner 用這個讓一個 host 一條 SSH 跑多 capture
+/// channel(SPEC §9.2 「host 內限制 3 個並行 channel」)。
+pub struct SshSession {
+    client: Client,
+    drive: Option<JoinHandle<()>>,
+}
+
+impl SshSession {
+    /// 在這條 connection 上開新 channel 跑 cmd,收齊 stdout 回傳。
+    /// `&self` 故可同時被多個 task await(makiko Client 內部 sync,channel
+    /// multiplexing OK)。
+    pub async fn exec(&self, cmd: &str) -> Result<String> {
+        exec_on(&self.client, cmd).await
+    }
+}
+
+impl Drop for SshSession {
+    fn drop(&mut self) {
+        // drop client 觸發 makiko 內部 close + drive 後續 abort
+        if let Some(d) = self.drive.take() {
+            d.abort();
+        }
+    }
+}
+
+/// TCP + SSH handshake + auth,回一個可 reuse 的 SshSession。
+pub async fn connect(
     host: &str,
     port: u16,
     user: &str,
     auth: AuthMaterial<'_>,
-) -> Result<()> {
-    // 1. TCP
+) -> Result<SshSession> {
     let stream = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port)))
         .await
         .map_err(|_| anyhow!("tcp connect timeout ({}s)", CONNECT_TIMEOUT.as_secs()))?
         .map_err(|e| anyhow!("tcp connect: {e}"))?;
 
-    // 2. SSH handshake
     let config = ClientConfig::default_compatible_less_secure();
     let (client, mut receiver, future) =
         Client::open(stream, config).map_err(|e| anyhow!("open ssh client: {e}"))?;
-
-    // Drive the client future in background。abort 在 fn 結束 drop drive 時自動發。
     let drive = tokio::spawn(async move {
         let _ = future.await;
     });
 
-    // 3. 等 server pubkey,接受(M1b: 一律 ok,known_hosts 留 M1c+)
+    // server pubkey accept(M1b 一律接受;known_hosts 之後再做)
     loop {
         match receiver
             .recv()
@@ -66,81 +92,28 @@ pub async fn test_connection(
         }
     }
 
-    // 4. Auth
-    match auth {
-        AuthMaterial::Password(pw) => {
-            let result = client
-                .auth_password(user.to_string(), pw.to_string())
-                .await
-                .map_err(|e| anyhow!("password auth request: {e}"))?;
-            match result {
-                AuthPasswordResult::Success => {}
-                AuthPasswordResult::Failure(_) => bail!("password authentication failed"),
-                AuthPasswordResult::ChangePassword(_) => {
-                    bail!("server requires password change");
-                }
-            }
-        }
-        AuthMaterial::Key { path, passphrase } => {
-            let pem = std::fs::read(path).map_err(|e| anyhow!("read key {path:?}: {e}"))?;
-            // decode_pem_privkey_nopass 回 DecodedPrivkeyNopass enum,
-            // decode_pem_privkey 回 Privkey 直接 — 兩條 path 統一拿到 Privkey
-            let privkey: makiko::Privkey = match passphrase {
-                None => match makiko::keys::decode_pem_privkey_nopass(&pem)
-                    .map_err(|e| anyhow!("decode key (no passphrase): {e}"))?
-                {
-                    makiko::keys::DecodedPrivkeyNopass::Privkey(pk) => pk,
-                    _ => bail!("key is encrypted, please provide passphrase"),
-                },
-                Some(pp) => makiko::keys::decode_pem_privkey(&pem, pp.as_bytes())
-                    .map_err(|e| anyhow!("decode key with passphrase: {e}"))?,
-            };
+    do_auth(&client, user, auth).await?;
 
-            // makiko 的 auth_pubkey 要 explicit 演算法。挑 modern preset:
-            // - Ed25519 → SSH_ED25519
-            // - RSA → SHA2-256(現代 ssh server 都接,SHA1 廢棄)
-            // - 其他類型(ECDSA / Dsa)M1b 不支援,owner 撞到再補
-            let algo: &'static makiko::pubkey::PubkeyAlgo = match &privkey {
-                makiko::Privkey::Ed25519(_) => &makiko::pubkey::SSH_ED25519,
-                makiko::Privkey::Rsa(_) => &makiko::pubkey::RSA_SHA2_256,
-                _ => bail!("M1b 暫只支援 Ed25519 / RSA 私鑰;ECDSA/DSA 之後補"),
-            };
+    Ok(SshSession {
+        client,
+        drive: Some(drive),
+    })
+}
 
-            let result = client
-                .auth_pubkey(user.to_string(), privkey, algo)
-                .await
-                .map_err(|e| anyhow!("pubkey auth request: {e}"))?;
-            match result {
-                AuthPubkeyResult::Success => {}
-                AuthPubkeyResult::Failure(_) => bail!("pubkey authentication failed"),
-            }
-        }
-    }
-
-    // 5. 開 session 跑 whoami(只要 .wait() 完成代表 server 收到並執行了)
-    let (session, _session_rx) = client
-        .open_session(makiko::ChannelConfig::default())
-        .await
-        .map_err(|e| anyhow!("open session: {e}"))?;
-    session
-        .exec(b"whoami")
-        .map_err(|e| anyhow!("exec whoami request: {e}"))?
-        .wait()
-        .await
-        .map_err(|e| anyhow!("exec whoami wait: {e}"))?;
-
-    // 6. 收尾。drive task 在 client drop + drive abort 後會結束。
-    drop(client);
-    drive.abort();
-
+pub async fn test_connection(
+    host: &str,
+    port: u16,
+    user: &str,
+    auth: AuthMaterial<'_>,
+) -> Result<()> {
+    let session = connect(host, port, user, auth).await?;
+    // exec whoami 驗 channel 可開、auth + exec 全鏈路通
+    session.exec("whoami").await?;
     Ok(())
 }
 
-/// 連 + auth + exec command + 把 stdout 收齊 + 收尾。
-/// 給 list_sessions / capture_session 等 backend command 用。
-///
-/// M1c 階段:每個 call 開一條新 SSH。SPEC §9.2 講「每 host 一條 persistent
-/// connection」是 M1d capture 並發控制要做的優化,這裡先簡單。
+/// 連 + auth + 跑單一 cmd 後直接收尾。one-shot 場景用(`list_sessions` /
+/// `capture_session`)。需要連一次跑多 cmd 的場景請用 `connect` + `SshSession::exec`。
 pub async fn run_command(
     host: &str,
     port: u16,
@@ -148,38 +121,13 @@ pub async fn run_command(
     auth: AuthMaterial<'_>,
     cmd: &str,
 ) -> Result<String> {
-    let stream = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port)))
-        .await
-        .map_err(|_| anyhow!("tcp connect timeout ({}s)", CONNECT_TIMEOUT.as_secs()))?
-        .map_err(|e| anyhow!("tcp connect: {e}"))?;
+    let session = connect(host, port, user, auth).await?;
+    session.exec(cmd).await
+}
 
-    let config = ClientConfig::default_compatible_less_secure();
-    let (client, mut receiver, future) =
-        Client::open(stream, config).map_err(|e| anyhow!("open ssh client: {e}"))?;
-    let drive = tokio::spawn(async move {
-        let _ = future.await;
-    });
+// ---- 內部 helpers ----
 
-    // server pubkey accept(M1b 一律接受)
-    loop {
-        match receiver
-            .recv()
-            .await
-            .map_err(|e| anyhow!("recv server event: {e}"))?
-        {
-            Some(ClientEvent::ServerPubkey(_pubkey, accept_tx)) => {
-                accept_tx.accept();
-                break;
-            }
-            Some(_) => continue,
-            None => bail!("server closed before pubkey exchange"),
-        }
-    }
-
-    // auth(複用 test_connection 的邏輯,DRY 留給之後 refactor)
-    do_auth(&client, user, auth).await?;
-
-    // 開 session + exec + 收 stdout
+async fn exec_on(client: &Client, cmd: &str) -> Result<String> {
     let (session, mut sess_rx) = client
         .open_session(makiko::ChannelConfig::default())
         .await
@@ -208,9 +156,6 @@ pub async fn run_command(
         }
     }
 
-    drop(client);
-    drive.abort();
-
     if let Some(code) = exit_code {
         if code != 0 {
             let stderr_str = String::from_utf8_lossy(&stderr);
@@ -220,7 +165,6 @@ pub async fn run_command(
     Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
-// 把 test_connection 的 auth 抽出給 run_command 共用
 async fn do_auth(client: &Client, user: &str, auth: AuthMaterial<'_>) -> Result<()> {
     match auth {
         AuthMaterial::Password(pw) => {
