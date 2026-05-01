@@ -1,56 +1,61 @@
+// 一個 session 的 mini capture view,給 HostCaptureGrid 的 grid cell 用。
+// xterm 字體調小、固定高度,讓多個 cell 同時排列看到全 host overview。
+
 import * as React from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import {
   Terminal as TerminalIcon,
   RefreshCw,
   Loader2,
-  ArrowLeft,
+  Maximize2,
 } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 
 import type { CaptureResult, Host, Session } from "@/lib/types";
 import { api } from "@/lib/tauri";
-import { Button } from "@/components/ui/button";
 import { relativeTime } from "@/lib/time";
 
 type Props = {
   host: Host;
   session: Session;
-  // 從 grid 點進來時提供 — 按返回 = 回到 host grid view
-  onBack?: () => void;
+  // 點 [⇱] 進單一視圖(SessionPanel)
+  onExpand?: () => void;
 };
 
-export function SessionPanel({ host, session, onBack }: Props) {
+export function CaptureCell({ host, session, onExpand }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const xtermRef = React.useRef<XTerm | null>(null);
   const fitRef = React.useRef<FitAddon | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
 
-  // xterm 初始化(每次 SessionPanel mount 一次)
   React.useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
     const term = new XTerm({
       fontFamily:
         '"JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
-      lineHeight: 1.2,
+      fontSize: 11,
+      lineHeight: 1.15,
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
       disableStdin: true,
-      scrollback: 5000,
+      scrollback: 2000,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
-    requestAnimationFrame(() => fit.fit());
+    requestAnimationFrame(() => {
+      try {
+        fit.fit();
+      } catch {
+        // 容器尺寸還沒穩
+      }
+    });
 
     return () => {
       term.dispose();
@@ -59,21 +64,19 @@ export function SessionPanel({ host, session, onBack }: Props) {
     };
   }, []);
 
-  // Container resize → fit
   React.useEffect(() => {
     if (!containerRef.current) return;
     const ro = new ResizeObserver(() => {
       try {
         fitRef.current?.fit();
       } catch {
-        // ignore — element 還沒 layout 完
+        // ignore
       }
     });
     ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, []);
 
-  // host/session 變動 → 拉一次 capture + 訂閱該 (host, session) event
   React.useEffect(() => {
     const writeResult = (r: CaptureResult) => {
       const term = xtermRef.current;
@@ -88,7 +91,6 @@ export function SessionPanel({ host, session, onBack }: Props) {
       .captureSession(host.id, session.name)
       .then(writeResult)
       .catch((err) => {
-        toast.error(`抓 capture 失敗:${String(err)}`);
         const term = xtermRef.current;
         if (term) {
           term.clear();
@@ -105,86 +107,65 @@ export function SessionPanel({ host, session, onBack }: Props) {
       .then((un) => {
         unlisten = un;
       })
-      .catch((err) => console.warn("[SessionPanel] listen failed:", err));
+      .catch((err) => console.warn("[CaptureCell] listen failed:", err));
 
     return () => {
       unlisten?.();
     };
   }, [host.id, session.name]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     setRefreshing(true);
     try {
-      const r = await api.captureSession(host.id, session.name);
-      const term = xtermRef.current;
-      if (term) {
-        term.clear();
-        term.write(r.content);
-      }
-      setCapturedAt(r.captured_at);
+      await api.captureSession(host.id, session.name);
+      // 不用手動寫 — listen handler 會接到 event 自動更新
     } catch (err) {
-      toast.error(`Refresh 失敗:${String(err)}`);
+      toast.error(`${session.name} refresh 失敗:${String(err)}`);
     } finally {
       setRefreshing(false);
     }
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="flex min-w-0 flex-1 items-start gap-2">
-          {onBack && (
+    <div className="flex flex-col overflow-hidden rounded-md border border-border">
+      <header className="flex items-center gap-1 border-b border-border bg-muted/40 px-2 py-1 text-xs">
+        <TerminalIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate font-mono font-medium">{session.name}</span>
+        <span className="shrink-0 text-muted-foreground">
+          · {session.attached ? "attached" : "idle"} ·{" "}
+          {relativeTime(session.activity)}
+          {capturedAt && <> · cap {relativeTime(capturedAt)}</>}
+        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50"
+            title="重抓此 session"
+          >
+            {refreshing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+          </button>
+          {onExpand && (
             <button
               type="button"
-              onClick={onBack}
-              className="mt-0.5 rounded p-1 text-muted-foreground hover:bg-muted"
-              title="回 host capture grid"
+              onClick={onExpand}
+              className="rounded p-1 text-muted-foreground hover:bg-background"
+              title="放大看(進單一 session 視圖)"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <Maximize2 className="h-3 w-3" />
             </button>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <TerminalIcon className="h-4 w-4 text-muted-foreground" />
-              <h2 className="truncate text-base font-semibold">
-                {session.name}
-              </h2>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                @ {host.display_name}
-              </span>
-            </div>
-            <div className="mt-1 truncate text-xs text-muted-foreground">
-              {host.ssh_user}@{host.ssh_host}:{host.ssh_port} ·{" "}
-              {session.attached ? "attached" : "idle"} · {session.windows} window
-              {session.windows > 1 ? "s" : ""} · 最後活動{" "}
-              {relativeTime(session.activity)}
-              {capturedAt && (
-                <>
-                  {" · "}capture {relativeTime(capturedAt)}
-                </>
-              )}
-            </div>
-          </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          title="重抓 capture"
-        >
-          {refreshing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Refresh
-        </Button>
       </header>
-
-      <main className="relative flex-1 overflow-hidden bg-[#0a0a0a]">
+      <div className="relative h-56 bg-[#0a0a0a]">
         <div ref={containerRef} className="absolute inset-0" />
-      </main>
+      </div>
     </div>
   );
 }

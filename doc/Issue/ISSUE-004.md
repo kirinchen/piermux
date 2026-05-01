@@ -33,11 +33,16 @@ started: 2026-05-01
 - [x] SessionPanel mount → `api.captureSession` 拉一次 + `listen('capture-updated:<host>:<session>')` 接 host/all refresh 觸發的 incremental update
 - [x] 失敗 host 標 ⚠ 不影響其他 — host_status 既有 disconnected ⚠ icon(M1c)持續表現,refresh-all/host 失敗只 toast.error,不污染 tree icon
 
+### Perf 優化 + Grid UX(2026-05-01,本批 commits)
+
+- [x] **SPEC §9.2「一個 host 一條 SSH」優化(commit `1f3ad4a`):** `ssh::SshSession` 抽出來,`capture_host_inner` 一條連線跑 list-sessions + N capture-pane channel(`Semaphore(3)` 限速)。3×5 場景 SSH 連線數從 18(1 list + 15 capture)降到 3(每 host 1 條)。
+- [x] **Grid UX(本 commit):** `Selection` type 改 discriminated union(`kind:'host'` / `kind:'session'`)。點 host name → 右側顯示 `HostCaptureGrid`(該 host 所有 session 排成 grid,每個 cell 是 mini xterm)。點 session 仍進 `SessionPanel` 單一視圖。Cell 上 [⇱] 放大進單一視圖,SessionPanel 加 ← back 按鈕回 grid。
+
 ### 等 owner Windows 真實環境驗
 
 - [ ] **完成標準(SPEC §M1 之一):** 3 host × 5 session 全部 refresh-all < 3 秒
-  - **agent 端不能驗** — 需要 owner 真實 Tailscale + 多 host 環境量。可能要做 SPEC §9.2「每 host 一條 persistent SSH」優化才達標(M1d 暫每次 capture 新開 SSH,handshake 成本高)
-- [ ] commit `M1d: capture + 三層 refresh` — backend `59a7916` + frontend(本 commit)
+  - 1 host × 3 session 場景 owner 已 ship 驗證(commit `3c02ad1` 截圖)。3-host scale 等之後加更多 host 才量得到真實
+- [x] commit 系列(M1d 不打單一 commit,分 backend `59a7916` + frontend `03a9196` + perf `1f3ad4a` + grid)
 
 ## Investigation / Notes
 

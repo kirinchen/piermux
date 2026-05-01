@@ -20,7 +20,14 @@ import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
 import type { Host, HostConnectionStatus, Session } from "@/lib/types";
 
-export type Selection = { host: Host; session: Session } | null;
+// Selection 的兩種模式:
+// - kind:'host'   → 右側顯示 HostCaptureGrid(該 host 所有 session 的 capture grid)
+// - kind:'session'→ 右側顯示 SessionPanel(單一 session 的大 capture)
+// `null` = 沒選
+export type Selection =
+  | null
+  | { kind: "host"; host: Host }
+  | { kind: "session"; host: Host; session: Session };
 
 type Props = {
   selection: Selection;
@@ -48,7 +55,7 @@ export function HostTree({ selection, onSelect, onAdd, onEdit }: Props) {
     try {
       await del.mutateAsync(h.id);
       toast.success(`已刪除 ${h.display_name}`);
-      if (selection?.host.id === h.id) onSelect(null);
+      if (selection && selection.host.id === h.id) onSelect(null);
     } catch (err) {
       toast.error(`刪除失敗:${String(err)}`);
     }
@@ -122,6 +129,9 @@ function HostRow({
   const sessions = useSessions(host.id, expanded);
   const refreshHost = useRefreshHost();
 
+  const isHostSelected =
+    selection?.kind === "host" && selection.host.id === host.id;
+
   const handleRefreshHost = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
@@ -134,9 +144,19 @@ function HostRow({
     }
   };
 
+  // 點 host 名 = 選 host(右側顯示 capture grid),沒展開的話順便展開
+  const handleSelectHost = () => {
+    onSelect({ kind: "host", host });
+    if (!expanded) onToggle();
+  };
+
   return (
     <div className="px-1">
-      <div className="group flex items-center gap-1 rounded-md px-2 py-1 hover:bg-muted">
+      <div
+        className={`group flex items-center gap-1 rounded-md px-2 py-1 hover:bg-muted ${
+          isHostSelected ? "bg-muted" : ""
+        }`}
+      >
         <button
           type="button"
           onClick={onToggle}
@@ -154,9 +174,9 @@ function HostRow({
 
         <button
           type="button"
-          onClick={onToggle}
+          onClick={handleSelectHost}
           className="flex-1 truncate text-left text-sm font-medium"
-          title={`${host.ssh_user}@${host.ssh_host}:${host.ssh_port}`}
+          title={`${host.ssh_user}@${host.ssh_host}:${host.ssh_port} — 點開看 capture grid`}
         >
           {host.display_name}
         </button>
@@ -214,15 +234,18 @@ function HostRow({
           )}
           {sessions.data?.map((s) => {
             const selected =
-              selection?.host.id === host.id &&
-              selection?.session.name === s.name;
+              selection?.kind === "session" &&
+              selection.host.id === host.id &&
+              selection.session.name === s.name;
             return (
               <SessionRow
                 key={s.name}
                 host={host}
                 session={s}
                 selected={selected}
-                onSelect={() => onSelect({ host, session: s })}
+                onSelect={() =>
+                  onSelect({ kind: "session", host, session: s })
+                }
               />
             );
           })}

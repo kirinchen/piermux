@@ -24,8 +24,10 @@
 
 ### M1d 開工中(ISSUE-004,Windows-local agent,等 owner perf 驗收)
 - **Backend ship(commit `59a7916`):** capture_session / capture_host / capture_all,Semaphore(3) per host,event emit,capture_cache UPSERT
-- **Frontend ship(本 commit):** xterm.js readonly SessionPanel(@xterm/xterm + addon-fit + addon-web-links)、三個 [🔄] 按鈕(host row hover / session row hover / main header)、capture-updated event listener
-- **等 owner Windows 環境驗:** 3 host × 5 session refresh-all < 3 秒(SPEC §M1 完成標準)。若不達標 → SPEC §9.2「每 host 一條 persistent SSH」優化(open 一條 makiko `Client` reuse,跑多個 channel)— 那是 M1d 收尾再決定要不要做的最大 architectural change
+- **Frontend ship(commit `03a9196`):** xterm.js readonly SessionPanel(@xterm/xterm + addon-fit + addon-web-links)、三個 [🔄] 按鈕、capture-updated event listener
+- **Perf 優化(commit `1f3ad4a`):** `ssh::SshSession` 抽出來,`capture_host_inner` 一個 host 一條 SSH 跑多 channel(SPEC §9.2)。3×5 場景連線數 18 → 3
+- **Grid UX(本 commit):** Selection 改 discriminated union(host vs session),host click → `HostCaptureGrid`(N×N mini xterm grid),session click → 單一 `SessionPanel`,grid cell 上 [⇱] 放大、SessionPanel 加 ← back
+- **等 owner Windows 環境驗:** 1 host × 3 session 已 ship 驗證 ✓;3 host × 5 session refresh-all < 3 秒(SPEC §M1 完成標準)需要更多 host 才量得到
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速
