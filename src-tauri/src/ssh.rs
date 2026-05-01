@@ -46,6 +46,12 @@ impl SshSession {
     pub async fn exec(&self, cmd: &str) -> Result<String> {
         exec_on(&self.client, cmd).await
     }
+
+    /// 給 attach.rs 用 — 直接拿 underlying makiko Client 開 PTY session。
+    /// capture / list-sessions 走 `exec`,不該動這個。
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
 }
 
 impl Drop for SshSession {

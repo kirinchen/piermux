@@ -22,12 +22,16 @@
 
 ## 進行中 / open(短期 actionable)
 
-### M1d 開工中(ISSUE-004,Windows-local agent,等 owner perf 驗收)
-- **Backend ship(commit `59a7916`):** capture_session / capture_host / capture_all,Semaphore(3) per host,event emit,capture_cache UPSERT
-- **Frontend ship(commit `03a9196`):** xterm.js readonly SessionPanel(@xterm/xterm + addon-fit + addon-web-links)、三個 [🔄] 按鈕、capture-updated event listener
-- **Perf 優化(commit `1f3ad4a`):** `ssh::SshSession` 抽出來,`capture_host_inner` 一個 host 一條 SSH 跑多 channel(SPEC §9.2)。3×5 場景連線數 18 → 3
-- **Grid UX(本 commit):** Selection 改 discriminated union(host vs session),host click → `HostCaptureGrid`(N×N mini xterm grid),session click → 單一 `SessionPanel`,grid cell 上 [⇱] 放大、SessionPanel 加 ← back
-- **等 owner Windows 環境驗:** 1 host × 3 session 已 ship 驗證 ✓;3 host × 5 session refresh-all < 3 秒(SPEC §M1 完成標準)需要更多 host 才量得到
+### M1d 完成 ✓(ISSUE-004,1 host scale 驗 ✓,3 host scale 等 owner 環境)
+- Backend `59a7916` + Frontend `03a9196` + Perf `1f3ad4a` + Grid UX `7419866`
+- 1 host × 3 session ship + grid view owner 已 ship 驗證 ✓
+- 3 host × 5 session refresh-all < 3 秒等之後加 host 才量得到
+
+### M1f 開工中(ISSUE-006,attach mode 基礎)
+- **Backend(本 commit):** `attach.rs` + 4 commands(`attach_session` / `write_to_session` / `resize_session` / `detach_session`)+ `AttachRegistry: Mutex<HashMap>` 存 attach 狀態,reader task 把 PTY 輸出 emit `attach-output-<id>` event
+- **Frontend(本 commit):** SessionPanel 加 `mode: 'capture'|'attach'` state,header [Attach]/[Detach] toggle + 模式 badge,attach 時 xterm `disableStdin = false` + `onData` → backend、`onResize` → backend、`attach-output-<id>` listener → `term.write`
+- **Stream mode**(預設,本 issue 範圍)— 字元即時送,M1g 才接 line buffer
+- **等 owner Windows 真實環境驗:** click [Attach] → tmux 重畫 + 打字 server 收到、Ctrl+C / vim / less 體驗、resize 重畫、[Detach] 切回 capture 且 server tmux session 不被關
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速

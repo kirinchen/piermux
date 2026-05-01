@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
+import { Terminal as XTerm, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
@@ -8,6 +8,8 @@ import {
   RefreshCw,
   Loader2,
   ArrowLeft,
+  Plug,
+  Power,
 } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
@@ -24,12 +26,27 @@ type Props = {
   onBack?: () => void;
 };
 
+type Mode = "capture" | "attach";
+
 export function SessionPanel({ host, session, onBack }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const xtermRef = React.useRef<XTerm | null>(null);
   const fitRef = React.useRef<FitAddon | null>(null);
+
+  const [mode, setMode] = React.useState<Mode>("capture");
+  const [attachId, setAttachId] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
+
+  // M1f attach data dispatch — onData IDisposable,attach 退出時 dispose
+  const onDataRef = React.useRef<IDisposable | null>(null);
+
+  // session 切換 / unmount 時把 mode reset 回 capture(避免殘留 attach)
+  React.useEffect(() => {
+    return () => {
+      setMode("capture");
+    };
+  }, [host.id, session.name]);
 
   // xterm 初始化(每次 SessionPanel mount 一次)
   React.useEffect(() => {
@@ -73,13 +90,31 @@ export function SessionPanel({ host, session, onBack }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // host/session 變動 → 拉一次 capture + 訂閱該 (host, session) event
+  // M1f xterm.onResize → 通知 backend(attach mode 才有意義)
   React.useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    const disp = term.onResize(({ cols, rows }) => {
+      if (mode === "attach" && attachId) {
+        api.resizeSession(attachId, cols, rows).catch((err) => {
+          console.warn("[SessionPanel] resizeSession failed", err);
+        });
+      }
+    });
+    return () => disp.dispose();
+  }, [mode, attachId]);
+
+  // Capture 模式:拉一次 capture + 訂閱該 (host, session) event
+  React.useEffect(() => {
+    if (mode !== "capture") return;
+    const term = xtermRef.current;
+    if (term) term.options.disableStdin = true;
+
     const writeResult = (r: CaptureResult) => {
-      const term = xtermRef.current;
-      if (!term) return;
-      term.clear();
-      term.write(r.content);
+      const t = xtermRef.current;
+      if (!t) return;
+      t.clear();
+      t.write(r.content);
       setCapturedAt(r.captured_at);
     };
 
@@ -89,10 +124,10 @@ export function SessionPanel({ host, session, onBack }: Props) {
       .then(writeResult)
       .catch((err) => {
         toast.error(`抓 capture 失敗:${String(err)}`);
-        const term = xtermRef.current;
-        if (term) {
-          term.clear();
-          term.write(
+        const t = xtermRef.current;
+        if (t) {
+          t.clear();
+          t.write(
             `\r\n\x1b[31m[piermux] capture failed: ${String(err)}\x1b[0m\r\n`,
           );
         }
@@ -110,7 +145,80 @@ export function SessionPanel({ host, session, onBack }: Props) {
     return () => {
       unlisten?.();
     };
-  }, [host.id, session.name]);
+  }, [mode, host.id, session.name]);
+
+  // Attach 模式(M1f stream mode):attachSession + listen output + wire onData
+  React.useEffect(() => {
+    if (mode !== "attach") return;
+    const term = xtermRef.current;
+    if (!term) return;
+
+    let aid: string | null = null;
+    let unlistenOutput: UnlistenFn | undefined;
+    let unlistenClosed: UnlistenFn | undefined;
+    let cancelled = false;
+
+    const start = async () => {
+      try {
+        term.options.disableStdin = false;
+        term.clear();
+        const cols = term.cols || 80;
+        const rows = term.rows || 24;
+        aid = await api.attachSession(host.id, session.name, cols, rows);
+        if (cancelled) {
+          // 在 attach 完成前 user 已經切走了,清掉 backend session
+          api.detachSession(aid).catch(() => {});
+          return;
+        }
+        setAttachId(aid);
+
+        unlistenOutput = await listen<string>(
+          `attach-output-${aid}`,
+          (e) => {
+            const t = xtermRef.current;
+            if (t) t.write(e.payload);
+          },
+        );
+
+        unlistenClosed = await listen(`attach-closed-${aid}`, () => {
+          toast.message("Attach 已關閉(server 端 EOF / exit)");
+          setMode("capture");
+        });
+
+        // wire keyboard:每筆 onData 直送 backend(stream mode)
+        // 真正的 line buffer 是 M1g 才接,現在使用者打字會即時送過去 ——
+        // 適合 vim / less / interactive prompt;對 Claude Code 等 AI agent 對話
+        // **暫時還會踩 colony 那種「打到一半送出去」的坑**,M1g 補上就解。
+        const disp = term.onData((data) => {
+          if (aid)
+            api.writeToSession(aid, data).catch((err) => {
+              console.warn("[SessionPanel] writeToSession failed", err);
+            });
+        });
+        onDataRef.current = disp;
+      } catch (err) {
+        if (cancelled) return;
+        toast.error(`Attach 失敗:${String(err)}`);
+        setMode("capture");
+      }
+    };
+    start();
+
+    return () => {
+      cancelled = true;
+      onDataRef.current?.dispose();
+      onDataRef.current = null;
+      unlistenOutput?.();
+      unlistenClosed?.();
+      const idToClose = aid;
+      if (idToClose) {
+        api.detachSession(idToClose).catch(() => {});
+      }
+      setAttachId(null);
+      const t = xtermRef.current;
+      if (t) t.options.disableStdin = true;
+    };
+  }, [mode, host.id, session.name]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -127,6 +235,10 @@ export function SessionPanel({ host, session, onBack }: Props) {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const toggleMode = () => {
+    setMode((m) => (m === "capture" ? "attach" : "capture"));
   };
 
   return (
@@ -152,39 +264,93 @@ export function SessionPanel({ host, session, onBack }: Props) {
               <span className="shrink-0 text-xs text-muted-foreground">
                 @ {host.display_name}
               </span>
+              <ModeBadge mode={mode} />
             </div>
             <div className="mt-1 truncate text-xs text-muted-foreground">
               {host.ssh_user}@{host.ssh_host}:{host.ssh_port} ·{" "}
               {session.attached ? "attached" : "idle"} · {session.windows} window
               {session.windows > 1 ? "s" : ""} · 最後活動{" "}
               {relativeTime(session.activity)}
-              {capturedAt && (
+              {mode === "capture" && capturedAt && (
                 <>
                   {" · "}capture {relativeTime(capturedAt)}
+                </>
+              )}
+              {mode === "attach" && attachId && (
+                <>
+                  {" · "}attach id <code className="font-mono">{attachId.slice(0, 8)}</code>
                 </>
               )}
             </div>
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          title="重抓 capture"
-        >
-          {refreshing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
+        <div className="flex shrink-0 items-center gap-2">
+          {mode === "capture" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="重抓 capture"
+            >
+              {refreshing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Refresh
+            </Button>
           )}
-          Refresh
-        </Button>
+          <Button
+            size="sm"
+            variant={mode === "attach" ? "default" : "outline"}
+            onClick={toggleMode}
+            title={
+              mode === "capture"
+                ? "進 attach 模式(雙向 PTY,stream 字元即時送)"
+                : "退出 attach,回 capture 唯讀模式"
+            }
+          >
+            {mode === "capture" ? (
+              <>
+                <Plug className="h-4 w-4" />
+                Attach
+              </>
+            ) : (
+              <>
+                <Power className="h-4 w-4" />
+                Detach
+              </>
+            )}
+          </Button>
+        </div>
       </header>
 
       <main className="relative flex-1 overflow-hidden bg-[#0a0a0a]">
         <div ref={containerRef} className="absolute inset-0" />
       </main>
+
+      {mode === "attach" && (
+        <footer className="border-t border-border bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300">
+          ⚠ Stream mode — 字元即時送(M1g 後才有 line buffer);用 Ctrl+B d 離開
+          tmux 時建議用上方 Detach 按鈕,server 端的 tmux session 不會被關。
+        </footer>
+      )}
     </div>
+  );
+}
+
+function ModeBadge({ mode }: { mode: Mode }) {
+  if (mode === "capture") {
+    return (
+      <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        capture
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
+      attach
+    </span>
   );
 }

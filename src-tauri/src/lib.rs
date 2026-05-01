@@ -1,3 +1,4 @@
+mod attach;
 mod capture;
 mod commands;
 mod hosts;
@@ -21,6 +22,8 @@ pub fn run() {
                 tauri::async_runtime::block_on(async move { hosts::open_pool(&db_path).await })
                     .expect("open sqlite pool");
             app.manage(pool);
+            // M1f attach registry(空 HashMap,attach_session 進來才塞)
+            app.manage(attach::AttachRegistry::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -37,6 +40,11 @@ pub fn run() {
             capture::capture_session,
             capture::capture_host,
             capture::capture_all,
+            // M1f attach(雙向 PTY,SPEC §3.2 / §6.5)
+            attach::attach_session,
+            attach::write_to_session,
+            attach::resize_session,
+            attach::detach_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -30,4 +30,18 @@ export const api = {
   captureHost: (hostId: string) =>
     invoke<CaptureResult[]>("capture_host", { hostId }),
   captureAll: () => invoke<CaptureResult[]>("capture_all"),
+  // M1f — attach(雙向 PTY,SPEC §3.2 / §6.5)
+  attachSession: (
+    hostId: string,
+    sessionName: string,
+    cols: number,
+    rows: number,
+  ) =>
+    invoke<string>("attach_session", { hostId, sessionName, cols, rows }),
+  writeToSession: (sessionId: string, data: string) =>
+    invoke<void>("write_to_session", { sessionId, data }),
+  resizeSession: (sessionId: string, cols: number, rows: number) =>
+    invoke<void>("resize_session", { sessionId, cols, rows }),
+  detachSession: (sessionId: string) =>
+    invoke<void>("detach_session", { sessionId }),
 };
