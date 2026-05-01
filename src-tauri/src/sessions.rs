@@ -22,16 +22,18 @@ pub async fn list_sessions(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
+    list_sessions_for(&host).await.map_err(|e| e.to_string())
+}
 
-    let password = read_password_for(&host).map_err(|e| e.to_string())?;
-    let auth = build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
-    let port = port_u16(&host).map_err(|e| e.to_string())?;
-
-    let stdout = ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, TMUX_LIST_FMT)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    parse_sessions(&stdout).map_err(|e| e.to_string())
+/// Backend helper:給已知的 Host 跑 `tmux list-sessions`,parse 回 Vec<Session>。
+/// `list_sessions` Tauri command 跟 capture.rs 共用。
+pub(crate) async fn list_sessions_for(host: &Host) -> Result<Vec<Session>> {
+    let password = read_password_for(host)?;
+    let auth = build_auth(host, password.as_deref())?;
+    let port = port_u16(host)?;
+    let stdout =
+        ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, TMUX_LIST_FMT).await?;
+    parse_sessions(&stdout)
 }
 
 #[tauri::command]
@@ -61,9 +63,9 @@ pub async fn host_status(
     }
 }
 
-// ---- helpers ----
+// ---- helpers(pub(crate) 給 capture.rs 共用)----
 
-fn read_password_for(host: &Host) -> Result<Option<String>> {
+pub(crate) fn read_password_for(host: &Host) -> Result<Option<String>> {
     if host.auth_type == "password" {
         secret::read_password(&host.id).context("read keyring password")
     } else {
@@ -71,11 +73,17 @@ fn read_password_for(host: &Host) -> Result<Option<String>> {
     }
 }
 
-fn build_auth<'a>(host: &'a Host, password: Option<&'a str>) -> Result<AuthMaterial<'a>> {
+pub(crate) fn build_auth<'a>(
+    host: &'a Host,
+    password: Option<&'a str>,
+) -> Result<AuthMaterial<'a>> {
     match host.auth_type.as_str() {
         "password" => {
             let pw = password.ok_or_else(|| {
-                anyhow!("password not in keyring for host {} — re-edit to set", host.display_name)
+                anyhow!(
+                    "password not in keyring for host {} — re-edit to set",
+                    host.display_name
+                )
             })?;
             Ok(AuthMaterial::Password(pw))
         }
@@ -93,7 +101,7 @@ fn build_auth<'a>(host: &'a Host, password: Option<&'a str>) -> Result<AuthMater
     }
 }
 
-fn port_u16(host: &Host) -> Result<u16> {
+pub(crate) fn port_u16(host: &Host) -> Result<u16> {
     host.ssh_port
         .try_into()
         .map_err(|_| anyhow!("ssh_port out of range: {}", host.ssh_port))

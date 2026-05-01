@@ -106,9 +106,7 @@ const SELECT_COLUMNS: &str = "id, display_name, ssh_host, ssh_port, ssh_user, au
                               private_key_path, sort_order, created_at, last_used_at";
 
 pub async fn list_hosts(pool: &SqlitePool) -> Result<Vec<Host>> {
-    let sql = format!(
-        "SELECT {SELECT_COLUMNS} FROM hosts ORDER BY sort_order, display_name"
-    );
+    let sql = format!("SELECT {SELECT_COLUMNS} FROM hosts ORDER BY sort_order, display_name");
     let rows = sqlx::query_as::<_, Host>(&sql).fetch_all(pool).await?;
     Ok(rows)
 }

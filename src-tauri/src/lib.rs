@@ -1,3 +1,4 @@
+mod capture;
 mod commands;
 mod hosts;
 mod secret;
@@ -14,15 +15,11 @@ pub fn run() {
         // plugin-sql 留給 M1d 之後 frontend incremental capture_cache update 用。
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("resolve app_data_dir");
+            let app_data_dir = app.path().app_data_dir().expect("resolve app_data_dir");
             let db_path = app_data_dir.join("piermux.db");
-            let pool = tauri::async_runtime::block_on(async move {
-                hosts::open_pool(&db_path).await
-            })
-            .expect("open sqlite pool");
+            let pool =
+                tauri::async_runtime::block_on(async move { hosts::open_pool(&db_path).await })
+                    .expect("open sqlite pool");
             app.manage(pool);
             Ok(())
         })
@@ -36,6 +33,10 @@ pub fn run() {
             // M1c real(makiko exec):取代之前的 sessions_mock
             sessions::list_sessions,
             sessions::host_status,
+            // M1d capture(三層 refresh,SPEC §3.3 / §6.3)
+            capture::capture_session,
+            capture::capture_host,
+            capture::capture_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

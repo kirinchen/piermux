@@ -16,10 +16,7 @@ pub async fn list_hosts(pool: State<'_, SqlitePool>) -> Result<Vec<Host>, String
 }
 
 #[tauri::command]
-pub async fn create_host(
-    pool: State<'_, SqlitePool>,
-    form: HostForm,
-) -> Result<Host, String> {
+pub async fn create_host(pool: State<'_, SqlitePool>, form: HostForm) -> Result<Host, String> {
     // 創 host 之前先驗 — auth=password 必須有密碼,不然存進去會壞
     // (form.password=None 時 store_password 不 call,後續 list_sessions
     //  從 keyring 讀不到,使用者只能 edit 重設)
@@ -61,10 +58,7 @@ pub async fn update_host(
 }
 
 #[tauri::command]
-pub async fn delete_host(
-    pool: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_host(pool: State<'_, SqlitePool>, id: String) -> Result<(), String> {
     hosts::delete_host(pool.inner(), &id)
         .await
         .map_err(|e| e.to_string())?;
