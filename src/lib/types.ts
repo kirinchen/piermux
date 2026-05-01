@@ -49,6 +49,14 @@ export type Session = {
 // Mirrors src-tauri/src/hosts.rs HostConnectionStatus
 export type HostConnectionStatus = "connected" | "disconnected" | "connecting";
 
+// Mirrors src-tauri/src/capture.rs CaptureResult
+export type CaptureResult = {
+  host_id: string;
+  session_name: string;
+  content: string; // 含 ANSI escape codes
+  captured_at: string; // RFC3339
+};
+
 export const hostToForm = (h: Host): HostForm => ({
   display_name: h.display_name,
   ssh_host: h.ssh_host,

@@ -9,11 +9,14 @@ import {
   AlertTriangle,
   Loader2,
   Terminal,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useHostsList, useDeleteHost } from "@/hooks/useHosts";
 import { useSessions, useHostStatus } from "@/hooks/useSessions";
+import { useRefreshHost } from "@/hooks/useCapture";
+import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
 import type { Host, HostConnectionStatus, Session } from "@/lib/types";
 
@@ -117,6 +120,19 @@ function HostRow({
 }) {
   const status = useHostStatus(host.id);
   const sessions = useSessions(host.id, expanded);
+  const refreshHost = useRefreshHost();
+
+  const handleRefreshHost = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const results = await refreshHost.mutateAsync(host.id);
+      toast.success(
+        `${host.display_name}:已 refresh ${results.length} 個 session`,
+      );
+    } catch (err) {
+      toast.error(`${host.display_name} refresh 失敗:${String(err)}`);
+    }
+  };
 
   return (
     <div className="px-1">
@@ -146,6 +162,19 @@ function HostRow({
         </button>
 
         <div className="hidden gap-0.5 group-hover:flex">
+          <button
+            type="button"
+            onClick={handleRefreshHost}
+            disabled={refreshHost.isPending}
+            className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50"
+            title="重抓此 host 所有 session"
+          >
+            {refreshHost.isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+          </button>
           <button
             type="button"
             onClick={onEdit}
@@ -188,24 +217,76 @@ function HostRow({
               selection?.host.id === host.id &&
               selection?.session.name === s.name;
             return (
-              <button
+              <SessionRow
                 key={s.name}
-                type="button"
-                onClick={() => onSelect({ host, session: s })}
-                className={`flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-muted ${
-                  selected ? "bg-muted" : ""
-                }`}
-              >
-                <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate">{s.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {s.attached ? "attached" : "idle"} · {relativeTime(s.activity)}
-                </span>
-              </button>
+                host={host}
+                session={s}
+                selected={selected}
+                onSelect={() => onSelect({ host, session: s })}
+              />
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function SessionRow({
+  host,
+  session,
+  selected,
+  onSelect,
+}: {
+  host: Host;
+  session: Session;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const handleRefreshSession = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRefreshing(true);
+    try {
+      await api.captureSession(host.id, session.name);
+    } catch (err) {
+      toast.error(`${session.name} refresh 失敗:${String(err)}`);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  return (
+    <div
+      className={`group flex items-baseline gap-2 rounded-md pr-1 hover:bg-muted ${
+        selected ? "bg-muted" : ""
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex flex-1 items-baseline gap-2 truncate px-2 py-1 text-left text-sm"
+      >
+        <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="flex-1 truncate">{session.name}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {session.attached ? "attached" : "idle"} · {relativeTime(session.activity)}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={handleRefreshSession}
+        disabled={refreshing}
+        className="hidden rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50 group-hover:block"
+        title="重抓此 session capture"
+      >
+        {refreshing ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3 w-3" />
+        )}
+      </button>
     </div>
   );
 }

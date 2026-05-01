@@ -22,7 +22,10 @@
 
 ## 進行中 / open(短期 actionable)
 
-### M1d 開工中(ISSUE-004,Windows-local agent)
+### M1d 開工中(ISSUE-004,Windows-local agent,等 owner perf 驗收)
+- **Backend ship(commit `59a7916`):** capture_session / capture_host / capture_all,Semaphore(3) per host,event emit,capture_cache UPSERT
+- **Frontend ship(本 commit):** xterm.js readonly SessionPanel(@xterm/xterm + addon-fit + addon-web-links)、三個 [🔄] 按鈕(host row hover / session row hover / main header)、capture-updated event listener
+- **等 owner Windows 環境驗:** 3 host × 5 session refresh-all < 3 秒(SPEC §M1 完成標準)。若不達標 → SPEC §9.2「每 host 一條 persistent SSH」優化(open 一條 makiko `Client` reuse,跑多個 channel)— 那是 M1d 收尾再決定要不要做的最大 architectural change
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速
