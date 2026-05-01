@@ -195,6 +195,28 @@ DB URL `sqlite:piermux.db` + tauri identifier `dev.kirinchen.piermux` → tauri-
 
 ---
 
+### 2026-05-01 — D-11 attach 預設 stream input mode(SPEC §3.5.1 偏離,owner usage feedback)
+
+**SPEC §3.5.1:** 「Line buffer mode(預設)⭐」 — line buffer 是 piermux 的核心賣點(取代 colony 害 owner 搞壞 Claude session 的場景)。
+
+**Owner M1g ship 後實際使用觀察(2026-05-01):**
+- 大多數 attach 場景是一般 shell 操作(`ls` / `vim` / `git status` / `Ctrl+C`)— stream 即時送字元才符合 terminal 直覺
+- Line buffer 是「特殊場景才開」的功能 — 對 Claude Code / AI agent 長訊息對話 + 中文 IME 輸入時開
+- Default line 反而違反 terminal 直覺(「打字 → server 沒反應 → 要 Enter 才送」),新使用者第一次 attach 容易困惑
+
+**改:**
+- `SessionPanel` `useState<InputMode>('stream')`(原 `'line'`)
+- session 切換 reset effect 也回 `'stream'`
+- 進 attach 後 toggle `[Line | Stream]` 切過去用 line buffer
+
+**Line buffer 還在,功能不縮水** — 只是「不是 default」。差異化功能(SPEC §0/§1 piermux 為什麼存在)還是 line buffer 的存在,不是 default 設定。
+
+**為什麼是 D-level decision:** SPEC §3.5.1 explicit 寫 default ⭐,動到要 owner 確認。Owner 2026-05-01 訊息「預設改成 streaming, line buffer 變成第2選項」明示。
+
+**SPEC 怎麼處理:** 不直接動 SPEC §3.5.1(待 M3 polish 整理時 owner 統一決),NOTES D-11 留 deviation 記錄。對齊 D-10 處理方式。
+
+---
+
 ### 2026-05-01 — D-10 點 session 預設 attach(SPEC §2 偏離,owner 拍板)
 
 **SPEC §2:** 「預設點 session → capture(輕量)。按 [Attach] → 切到 attach 模式。」

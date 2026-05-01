@@ -38,9 +38,12 @@ export function SessionPanel({ host, session, onBack }: Props) {
   // 預設 attach(NOTES.md D-10):進單一 session 視圖 = 我選定要操作。
   // 瀏覽用 grid view(host click)。要回唯讀 capture 按 [Detach]。
   const [mode, setMode] = React.useState<Mode>("attach");
-  // 預設 line(SPEC §3.5.1):line buffer 是 piermux 的核心賣點(M1g)。
-  // Stream mode 給 vim / less / 互動 prompt 用,toggle 切。
-  const [inputMode, setInputMode] = React.useState<InputMode>("line");
+  // 預設 stream(NOTES.md D-11,SPEC §3.5.1 偏離):大多數 attach 場景是
+  // 一般 shell(vim / ls / git / Ctrl+C 等),stream 即時送字元才符合
+  // terminal 直覺。Line buffer 在 attach 模式內 [Line | Stream] toggle 切過去,
+  // 給 AI agent 對話 / 中文長訊息場景用 — 這是 piermux 的差異化功能,
+  // 但不該是 default。
+  const [inputMode, setInputMode] = React.useState<InputMode>("stream");
   const [attachId, setAttachId] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
@@ -54,12 +57,12 @@ export function SessionPanel({ host, session, onBack }: Props) {
     inputModeRef.current = inputMode;
   }, [inputMode]);
 
-  // session 切換 / unmount 時把 mode reset 回 attach default(D-10)。
+  // session 切換 / unmount 時把 mode reset 回 default(D-10 attach + D-11 stream)。
   // attach effect 的 cleanup 會處理 detachSession 收尾。
   React.useEffect(() => {
     return () => {
       setMode("attach");
-      setInputMode("line");
+      setInputMode("stream");
     };
   }, [host.id, session.name]);
 
