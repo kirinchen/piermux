@@ -43,3 +43,7 @@ Desktop 主畫面左邊 tree 顯示「所有 host × 所有 session」,連線狀
 `sessions.rs` 取代 `sessions_mock.rs`。`ssh::run_command` 共用 helper(連 + auth + open_session + exec + 收 SessionEvent stdout/stderr/exit + 收尾)。`build_auth` 從 hosts table 跟 keyring 拉憑證。`useHostStatus` 加 `staleTime: 30_000` 避免每次 mount 重 probe。
 
 **Blocked by keyring bug** — list_sessions/host_status 對 password-auth 的 host 都會撞「password not in keyring」。詳見 ISSUE-002 收尾段 + `task.md` 進行中區。Owner workaround / 真 fix 之後就能驗。
+
+### 2026-05-01 — keyring fix(Cargo.toml platform features)
+
+NOTES.md D-9 抓到根因:keyring 3.x 沒指定 platform feature → fallback mock backend,寫完 drop。`Cargo.toml` 加 `features = ["apple-native", "windows-native", "sync-secret-service"]` 修。Owner 重編 + 重打密碼後,acceptance 兩條 `[~]`(real list_sessions / host_status)就能勾。

@@ -35,7 +35,7 @@ created: 2026-04-28
 
 ### 收尾(blocking resolved)
 
-- [~] keyring bug — `create_host` 後 keyring 沒寫入,list_sessions 抓不到密碼。`b3f5395` 加 validation 防再發生;owner workaround 是編輯既有 host 重打密碼。**等 owner 驗收 workaround 有效就 status → resolved**
+- [~] keyring bug — root cause: `Cargo.toml` 沒指定 keyring platform feature → 跑 mock backend(per-Entry in-memory,寫完即丟)。`Cargo.toml` 加 `features = ["apple-native", "windows-native", "sync-secret-service"]` 修(2026-05-01,NOTES.md D-9)。`b3f5395` validation 仍保留作 defense-in-depth。**等 owner Windows 重編 + 編輯 host 重打密碼驗到 list_sessions 拉到真 sessions → status → resolved**
 
 ## Investigation / Notes
 

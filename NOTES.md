@@ -195,6 +195,36 @@ DB URL `sqlite:piermux.db` + tauri identifier `dev.kirinchen.piermux` → tauri-
 
 ---
 
+### 2026-05-01 — D-9 keyring 沒寫入 = 沒接平台 backend(Windows agent 接手第一刀)
+
+**症狀:** owner 在 Windows 創 host b → test_connection ✓ → save → tree view 報「password not in keyring for host b — re-edit to set」。Re-edit dialog 密碼欄空白(只剩 placeholder 8 個 dot)。
+
+**根因:** `Cargo.toml` 寫 `keyring = "3.6.3"` 沒給任何 features。keyring 3.x 是 feature-flag 驅動的 backend 設計,沒指定平台 feature → fallback 到 mock backend。Mock 是 per-`Entry` instance in-memory:
+- `secret::store_password`:`Entry::new` 開新 mock,`set_password` 寫進那個 instance,函式結束 instance drop → 資料丟
+- 下一個 IPC `list_sessions` 進來,`secret::read_password` 又 `Entry::new` 一個全新 mock,讀回 `NoEntry`
+
+`Cargo.lock` 驗證:keyring 的 transitive deps 只有 `log` + `zeroize`,沒 `windows-sys` / `security-framework` / `dbus-secret-service` → 確認沒接平台。
+
+**為什麼 test_connection 卻通:** 它直接吃 form 裡的 `password` 餵 makiko,根本不走 keyring。所以單看 dialog 行為一切正常,bug 只在創完之後讀回的路徑才 surface。
+
+**修法(commit pending):**
+```toml
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+```
+
+`cargo check` 後 `Cargo.lock` 拉進三個平台 backend(`windows-sys` / `security-framework` 2 + 3 / `dbus-secret-service`),conditional compilation 各平台只用對應的。SPEC §13 / NOTES 紅線都不衝突,純補配置漏洞。
+
+**為什麼 D-8 outstanding 段預測「Windows Credential Manager 邊角」沒猜中:** 直覺是「keyring 大致 work 但有 edge case」,實際是「根本沒接 OS,test_connection 因為不走 keyring 才一直通」。留 D-8 那段做警示。
+
+**Owner 驗收步驟:**
+1. 停掉當前 `tauri dev` → Cargo.toml 改了要重編
+2. `npm run tauri dev` 重跑
+3. 既有 host b 之前「儲存」的密碼是 mock 寫的,已丟 → **編輯 host b → 重打密碼 → 儲存**
+4. 點開 host b 的 tree node → 應該真的拉到 server 上 tmux session 列表;host icon 應該變綠 connected ✓
+5. 通了 → ISSUE-002 + ISSUE-003 一起 → resolved
+
+---
+
 ## D-8 Handoff briefing — 換 Windows-local agent 接手(2026-04-30)
 
 > Owner 評估換掉遠端 Linux agent(我),改用 Windows local Claude Code 直接在 dev 機跑。下面是接手必讀。

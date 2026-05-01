@@ -22,11 +22,12 @@
 
 ## 進行中 / open(短期 actionable)
 
-### keyring bug(workaround + agent prevention 已 fix,owner verify pending)
+### keyring bug(root-caused + fixed,owner verify pending)
 - **症狀:** create_host 後從 keyring read_password 回 `NoEntry`,list_sessions / host_status 報「password not in keyring for host X — re-edit to set」
-- **agent 已動的(commit `b3f5395`):** `create_host` 加 validation,auth=password 但 password 空 → bail
-- **owner workaround:** App 內點 ✏️ 編輯 → 密碼欄重打 → 儲存 → 重新展開 host
-- **若 workaround 沒解 →** 是 keyring 3.6.3 對 Windows Credential Manager 的某個邊角(bus factor 注意)。下一步 debug:在 `secret::store_password` / `read_password` 加 `eprintln!` 看 entry name 有沒有 mismatch
+- **根因(2026-05-01,NOTES.md D-9):** `Cargo.toml` 寫 `keyring = "3.6.3"` 沒給 platform feature → fallback mock backend(per-Entry in-memory,寫完即丟)。test_connection 通是因為它不走 keyring,直接吃 form.password。
+- **fix:** `Cargo.toml` 改 `keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }`。`cargo check` 過,`Cargo.lock` 重 resolve 後 windows-sys / security-framework / dbus-secret-service 都拉進來。
+- **agent 之前的 defense-in-depth(commit `b3f5395`):** `create_host` validation 防 auth=password 但 password 空 — 保留。
+- **owner verify 步驟:** 停 tauri dev → `npm run tauri dev` 重編 → 編輯既有 host b → 重打密碼 → 儲存 → 點開 b tree node → 應拉到真 tmux session 列表。通了 → ISSUE-002 + ISSUE-003 一起 → resolved,本條移到 Done。
 
 ### M1d 預備(等 keyring 解 → owner OK 接手)
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
