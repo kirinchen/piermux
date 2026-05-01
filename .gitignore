@@ -33,3 +33,13 @@ target
 *.njsproj
 *.sln
 *.sw?
+
+# --- Claude Code local config(每位開發者各自有,不該共用)---
+.claude/settings.local.json
+
+# --- Local screenshots / mockups(可能含私人 session 內容)---
+# 想 commit 截圖請放 docs 並用乾淨示範資料,不要直接 push 隨手截的
+Avat.png
+image.png
+*.local.png
+

@@ -164,7 +164,7 @@ export function HostFormDialog({ open, onOpenChange, editing }: Props) {
                   onChange={(e) =>
                     set("private_key_path")(e.target.value || null)
                   }
-                  placeholder="C:\Users\kirin\.ssh\id_ed25519"
+                  placeholder="C:\Users\<you>\.ssh\id_ed25519"
                 />
                 <Button
                   type="button"
