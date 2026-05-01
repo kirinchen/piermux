@@ -13,8 +13,8 @@
 ## Sprint commitments(SPRINT-2026-W18)
 
 - [x] **[ISSUE-001](Issue/ISSUE-001.md)** M1a — Tauri scaffold + DB(`resolved` · 2026-04-28)
-- [~] **[ISSUE-002](Issue/ISSUE-002.md)** M1b — Host CRUD + Test Connection(test_connection 真實 makiko ✓ 2026-04-30,差最後 keyring write bug 收尾就 resolved)
-- [~] **[ISSUE-003](Issue/ISSUE-003.md)** M1c — Tree view + sessions(M1c real swap 完 2026-04-30,等 keyring bug 解 + owner 驗 list_sessions 真連)
+- [x] **[ISSUE-002](Issue/ISSUE-002.md)** M1b — Host CRUD + Test Connection(`resolved` · 2026-05-01,keyring fix `616279a`)
+- [x] **[ISSUE-003](Issue/ISSUE-003.md)** M1c — Tree view + sessions(`resolved` · 2026-05-01,連帶 keyring fix 解開 list_sessions)
 
 > M1d..M1h 已落 [ISSUE-004..008](Issue/) 並掛在 [EPIC-001](Epic/EPIC-001.md),但本 sprint 不承諾。下個 sprint(W19)滾入 M1d 起。
 
@@ -22,14 +22,7 @@
 
 ## 進行中 / open(短期 actionable)
 
-### keyring bug(root-caused + fixed,owner verify pending)
-- **症狀:** create_host 後從 keyring read_password 回 `NoEntry`,list_sessions / host_status 報「password not in keyring for host X — re-edit to set」
-- **根因(2026-05-01,NOTES.md D-9):** `Cargo.toml` 寫 `keyring = "3.6.3"` 沒給 platform feature → fallback mock backend(per-Entry in-memory,寫完即丟)。test_connection 通是因為它不走 keyring,直接吃 form.password。
-- **fix:** `Cargo.toml` 改 `keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }`。`cargo check` 過,`Cargo.lock` 重 resolve 後 windows-sys / security-framework / dbus-secret-service 都拉進來。
-- **agent 之前的 defense-in-depth(commit `b3f5395`):** `create_host` validation 防 auth=password 但 password 空 — 保留。
-- **owner verify 步驟:** 停 tauri dev → `npm run tauri dev` 重編 → 編輯既有 host b → 重打密碼 → 儲存 → 點開 b tree node → 應拉到真 tmux session 列表。通了 → ISSUE-002 + ISSUE-003 一起 → resolved,本條移到 Done。
-
-### M1d 預備(等 keyring 解 → owner OK 接手)
+### M1d 開工中(ISSUE-004,Windows-local agent)
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速
@@ -96,3 +89,4 @@ M2 才迫切。M1 末尾若有閒可先做(免得 M2 第一天炸鍋)。
 - [x] **M1b/1.5 (D-7) russh → makiko swap** — ed25519-dalek upstream 沒修,owner 拍板換 makiko stable lib(commit `9fd5004` + fix `6170436` + `e22ebf5`)。SPEC §13 deviation 寫進 NOTES.md D-7 · 2026-04-29
 - [x] **apply_schema bug fix** — `--` 註解 chunk 把 hosts CREATE TABLE 一起 skip(commit `ba520cd`) · 2026-04-30
 - [x] **M1c real (sessions backend swap mock → makiko)** — commit `bf6bf44`,`ssh::run_command` helper + `sessions.rs`(parse tmux output)替換 `sessions_mock.rs` · 2026-04-30
+- [x] **keyring platform features fix** — `Cargo.toml` 加 `["apple-native", "windows-native", "sync-secret-service"]`,根因是 keyring 3.x 沒指定 feature → fallback mock backend(NOTES.md D-9)。Owner Windows 驗證通,連帶把 ISSUE-002 + ISSUE-003 都 resolve · commit `616279a` · 2026-05-01

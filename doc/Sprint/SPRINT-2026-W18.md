@@ -53,6 +53,8 @@ _(agents and humans append dated notes as they work)_
 - **D-8 outstanding 段預測「Credential Manager 邊角」反推 → 沒猜中**:實際是「根本沒接 OS」,因為 test_connection 不走 keyring 所以先前測試蒙過去。留 D-8 段做警示。
 - **ISSUE-002 / ISSUE-003 status**:仍 `in_progress`,等 owner Windows 重編 + 編輯 host b 重打密碼 → list_sessions 拉到真 sessions → 一起 resolved。
 - **`npm run tauri dev` 起步小坑**:owner 第一次跑 launch.json 報 `'tauri' 不是內部或外部命令` — clean clone 沒跑過 `npm install`,`node_modules/.bin/tauri` 不存在。`npm install` 後解。M1a 接手 README 該補一行(M3 polish 順手)。
+- **Owner 驗收 keyring fix → ISSUE-002 / ISSUE-003 一起 resolve**:重編後編輯 host b 重打密碼 → list_sessions 真的拉到 server tmux session 列表 ✓,host icon 變綠 ✓。兩個 issue status `in_progress` → `resolved`,task.md sprint commitment 三個都 ✓。
+- **M1d 開工(本 commit)**:Windows-local agent 開 ISSUE-004 backend(`capture.rs` 三個 commands)。對齊 SPEC §3.3 + §6.3 + §9.2。
 
 ## Retrospective
 

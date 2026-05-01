@@ -3,10 +3,11 @@ id: ISSUE-002
 title: M1b — Host CRUD + Test Connection
 epic: EPIC-001
 sprint: SPRINT-2026-W18
-status: in_progress
+status: resolved
 priority: P0
 tasks: []
 created: 2026-04-28
+resolved: 2026-05-01
 ---
 
 ## Problem
@@ -35,7 +36,7 @@ created: 2026-04-28
 
 ### 收尾(blocking resolved)
 
-- [~] keyring bug — root cause: `Cargo.toml` 沒指定 keyring platform feature → 跑 mock backend(per-Entry in-memory,寫完即丟)。`Cargo.toml` 加 `features = ["apple-native", "windows-native", "sync-secret-service"]` 修(2026-05-01,NOTES.md D-9)。`b3f5395` validation 仍保留作 defense-in-depth。**等 owner Windows 重編 + 編輯 host 重打密碼驗到 list_sessions 拉到真 sessions → status → resolved**
+- [x] keyring bug — root cause: `Cargo.toml` 沒指定 keyring platform feature → 跑 mock backend(per-Entry in-memory,寫完即丟)。`Cargo.toml` 加 `features = ["apple-native", "windows-native", "sync-secret-service"]` 修(commit `616279a`,NOTES.md D-9)。`b3f5395` validation 保留作 defense-in-depth。**Owner 2026-05-01 Windows 端驗證:重編 + 編輯 host 重打密碼 → list_sessions 拉到真 server tmux session 列表 ✓**
 
 ## Investigation / Notes
 
@@ -71,4 +72,21 @@ created: 2026-04-28
 
 ## Resolution
 
-_(填於 status → resolved 時)_
+**Resolved 2026-05-01.** 完整 host CRUD + 真實 SSH test_connection 都 ship,Windows 端 owner 驗收通過。
+
+**收尾 timeline:**
+- 2026-04-29:M1b/1 backend 5 個 commands ship(test_connection stub),M1b/2 frontend ship。
+- 2026-04-29:M1b/1.5 ed25519-dalek upstream pkcs8 不容 spike timeout(NOTES.md D-6)。
+- 2026-04-29 → 2026-04-30:owner 拍板 SSH lib swap russh → makiko(NOTES.md D-7,SPEC §13 deviation),test_connection 真實連線 ✓。
+- 2026-04-30:owner 撞 keyring「password not in keyring」,先加 `create_host` validation 防再發生(commit `b3f5395`)。
+- 2026-05-01:Windows-local agent 接手,抓出根因 = keyring 3.x 沒指定 platform feature → mock backend(NOTES.md D-9)。`Cargo.toml` 加 features fix(commit `616279a`)。Owner 重編 + 編輯 host 重打密碼 → 通。
+
+**Surprises:**
+- D-6/D-7:russh 0.60.1 transitively 拉壞掉的 ed25519-dalek pre-release(upstream master 也沒修),所以 SPEC §13 寫 russh 但實際走 makiko(stable,純 Rust 同性質)。M1g attach PTY 行為若 makiko 出問題,觸發 D-7 「切回 russh」條件。
+- D-9:keyring 3.x 是 feature-flag driven backend 設計,沒指定 feature 不是 compile error 也不是 runtime panic,**fallback mock backend** — 每個 `Entry::new` 一個獨立 in-memory instance,寫進去就丟。test_connection 通是 red herring(它直接吃 form.password 不走 keyring)。漏掉 platform feature 是 scaffold 階段的 silent footgun。
+
+**M1b/1.5 acceptance 為什麼也勾掉:** 原計畫是 fork ed25519-dalek 修 2 行,改走 makiko swap(D-7)達成相同目的(unblock M1c+ 的 SSH connect),所以同 acceptance 等價滿足。
+
+**留尾(non-blocking):**
+- D-7 留下「ed25519-dalek 升 pre.7+ → 評估切回 russh」routine — 已掛 task.md backlog。
+- M1f attach PTY 真用 makiko 跑起來才知道有沒有 PTY 行為差異,M1f 第一個 spike 點。
