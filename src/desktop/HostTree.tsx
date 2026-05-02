@@ -10,6 +10,8 @@ import {
   Loader2,
   Terminal,
   RefreshCw,
+  Square,
+  CheckSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,23 +22,33 @@ import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
 import type { Host, HostConnectionStatus, Session } from "@/lib/types";
 
-// Selection 的兩種模式:
-// - kind:'host'   → 右側顯示 HostCaptureGrid(該 host 所有 session 的 capture grid)
-// - kind:'session'→ 右側顯示 SessionPanel(單一 session 的大 capture)
+// Selection 的三種模式 + null:
+// - kind:'host'      → 右側顯示 HostCaptureGrid(該 host 所有 session 的 capture grid)
+// - kind:'session'   → 右側顯示 SessionPanel(單一 session 的大 capture / attach)
+// - kind:'multi-host'→ 右側顯示 MultiHostCaptureGrid(多 host 並列比較)
 // `null` = 沒選
 export type Selection =
   | null
   | { kind: "host"; host: Host }
-  | { kind: "session"; host: Host; session: Session };
+  | { kind: "session"; host: Host; session: Session }
+  | { kind: "multi-host"; hosts: Host[] };
 
 type Props = {
   selection: Selection;
   onSelect: (s: Selection) => void;
   onAdd: () => void;
   onEdit: (h: Host) => void;
+  // 切 / 加 multi-host 比較模式 — 點 host 旁的 checkbox 進
+  onToggleMulti: (host: Host) => void;
 };
 
-export function HostTree({ selection, onSelect, onAdd, onEdit }: Props) {
+export function HostTree({
+  selection,
+  onSelect,
+  onAdd,
+  onEdit,
+  onToggleMulti,
+}: Props) {
   const { data: hosts, isLoading, error } = useHostsList();
   const del = useDeleteHost();
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
@@ -55,7 +67,21 @@ export function HostTree({ selection, onSelect, onAdd, onEdit }: Props) {
     try {
       await del.mutateAsync(h.id);
       toast.success(`已刪除 ${h.display_name}`);
-      if (selection && selection.host.id === h.id) onSelect(null);
+      // 刪除後若有 selection 牽涉到這個 host,清掉
+      if (
+        selection?.kind === "host" &&
+        selection.host.id === h.id
+      ) {
+        onSelect(null);
+      } else if (
+        selection?.kind === "session" &&
+        selection.host.id === h.id
+      ) {
+        onSelect(null);
+      } else if (selection?.kind === "multi-host") {
+        const next = selection.hosts.filter((x) => x.id !== h.id);
+        onSelect(next.length === 0 ? null : { kind: "multi-host", hosts: next });
+      }
     } catch (err) {
       toast.error(`刪除失敗:${String(err)}`);
     }
@@ -101,6 +127,7 @@ export function HostTree({ selection, onSelect, onAdd, onEdit }: Props) {
             onSelect={onSelect}
             onEdit={() => onEdit(h)}
             onDelete={() => handleDelete(h)}
+            onToggleMulti={() => onToggleMulti(h)}
           />
         ))}
       </div>
@@ -116,6 +143,7 @@ function HostRow({
   onSelect,
   onEdit,
   onDelete,
+  onToggleMulti,
 }: {
   host: Host;
   expanded: boolean;
@@ -124,6 +152,7 @@ function HostRow({
   onSelect: (s: Selection) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleMulti: () => void;
 }) {
   const status = useHostStatus(host.id);
   const sessions = useSessions(host.id, expanded);
@@ -131,6 +160,9 @@ function HostRow({
 
   const isHostSelected =
     selection?.kind === "host" && selection.host.id === host.id;
+  const isInMulti =
+    selection?.kind === "multi-host" &&
+    selection.hosts.some((h) => h.id === host.id);
 
   const handleRefreshHost = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -154,9 +186,30 @@ function HostRow({
     <div className="px-1">
       <div
         className={`group flex items-center gap-1 rounded-md px-2 py-1 hover:bg-muted ${
-          isHostSelected ? "bg-muted" : ""
+          isHostSelected || isInMulti ? "bg-muted" : ""
         }`}
       >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleMulti();
+          }}
+          className="flex h-5 w-5 items-center justify-center rounded hover:bg-background"
+          title={
+            isInMulti
+              ? "從 multi-host 比較中移除"
+              : "加入 multi-host 比較(右側並列顯示)"
+          }
+          aria-label="toggle multi-host"
+        >
+          {isInMulti ? (
+            <CheckSquare className="h-3.5 w-3.5 text-primary" />
+          ) : (
+            <Square className="h-3.5 w-3.5 text-muted-foreground/40" />
+          )}
+        </button>
+
         <button
           type="button"
           onClick={onToggle}

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { HostTree, type Selection } from "./HostTree";
 import { SessionPanel } from "./SessionPanel";
 import { HostCaptureGrid } from "./HostCaptureGrid";
+import { MultiHostCaptureGrid } from "./MultiHostCaptureGrid";
 import { HostFormDialog } from "./HostFormDialog";
 import { Button } from "@/components/ui/button";
 import { useRefreshAll } from "@/hooks/useCapture";
@@ -34,7 +35,7 @@ export function HostsView() {
     }
   };
 
-  // grid → 點 cell 放大進單一 session 視圖
+  // grid → 點 cell 放大進單一 session 視圖(也清掉 multi-host 比較)
   const expandSession = (host: Host, session: Session) => {
     setSelection({ kind: "session", host, session });
   };
@@ -45,6 +46,22 @@ export function HostsView() {
       setSelection({ kind: "host", host: selection.host });
     }
   };
+
+  // 點 host 旁 checkbox → toggle 進 / 出 multi-host 比較模式
+  const toggleMulti = (host: Host) => {
+    setSelection((prev) => {
+      const current =
+        prev?.kind === "multi-host" ? prev.hosts : ([] as Host[]);
+      const exists = current.some((h) => h.id === host.id);
+      const next = exists
+        ? current.filter((h) => h.id !== host.id)
+        : [...current, host];
+      if (next.length === 0) return null;
+      return { kind: "multi-host", hosts: next };
+    });
+  };
+
+  const clearMulti = () => setSelection(null);
 
   return (
     <div className="flex h-full flex-col">
@@ -77,6 +94,7 @@ export function HostsView() {
           onSelect={setSelection}
           onAdd={openAdd}
           onEdit={openEdit}
+          onToggleMulti={toggleMulti}
         />
         <div className="flex-1 overflow-hidden">
           {!selection && <EmptyState />}
@@ -91,6 +109,13 @@ export function HostsView() {
               host={selection.host}
               session={selection.session}
               onBack={backToHostGrid}
+            />
+          )}
+          {selection?.kind === "multi-host" && (
+            <MultiHostCaptureGrid
+              hosts={selection.hosts}
+              onSelectSession={expandSession}
+              onClearAll={clearMulti}
             />
           )}
         </div>
@@ -109,7 +134,10 @@ function EmptyState() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
       <TerminalIcon className="h-8 w-8 opacity-30" />
-      <p className="text-sm">點左側 host 看 capture grid,或點 session 看單一視圖</p>
+      <p className="text-sm">
+        點左側 host 看 capture grid · 點 session 看單一視圖 · checkbox 多選 host
+        並列比較
+      </p>
     </div>
   );
 }
