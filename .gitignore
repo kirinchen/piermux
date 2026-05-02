@@ -41,5 +41,7 @@ target
 # 想 commit 截圖請放 docs 並用乾淨示範資料,不要直接 push 隨手截的
 Avat.png
 image.png
+img.png
 *.local.png
+/scratch*.png
 

@@ -19,6 +19,7 @@ import { api } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { relativeTime } from "@/lib/time";
 import { LineBufferInput } from "./LineBufferInput";
+import { SendBar } from "./SendBar";
 
 type Props = {
   host: Host;
@@ -385,6 +386,7 @@ export function SessionPanel({ host, session, onBack }: Props) {
           對話建議切回 Line mode 避免「打到一半送出去」。
         </footer>
       )}
+      {mode === "capture" && <SendBar host={host} session={session} />}
     </div>
   );
 }

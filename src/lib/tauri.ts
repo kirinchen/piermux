@@ -44,4 +44,21 @@ export const api = {
     invoke<void>("resize_session", { sessionId, cols, rows }),
   detachSession: (sessionId: string) =>
     invoke<void>("detach_session", { sessionId }),
+  // M1e — send_message(不 attach 直接送字 / 按鍵,SPEC §3.4 / §6.4)
+  // literal=true → tmux send-keys -l(payload 視作 raw bytes,中文 / 特殊字 OK)
+  // literal=false → tmux send-keys(payload 視作 tmux key spec,如 "Escape" / "C-l")
+  sendMessage: (
+    hostId: string,
+    sessionName: string,
+    payload: string,
+    sendEnter: boolean,
+    literal: boolean,
+  ) =>
+    invoke<void>("send_message", {
+      hostId,
+      sessionName,
+      payload,
+      sendEnter,
+      literal,
+    }),
 };

@@ -195,6 +195,39 @@ DB URL `sqlite:piermux.db` + tauri identifier `dev.kirinchen.piermux` → tauri-
 
 ---
 
+### 2026-05-02 — D-12 send_message 加 `literal: bool` 參數(SPEC §6.4 模糊處)
+
+**SPEC §6.4 文字:**
+```rust
+send_message(host_id, session_name, payload, send_enter) -> Result<(), String>
+//   `tmux send-keys -l -t <session> "..."`
+//   send_enter 為 true 時額外送一個 Enter
+```
+
+寫死 `-l`(literal mode)。
+
+**SPEC §3.4 卻列預設 quick presets:**
+- `/syncdesk` — literal text,`-l` 走得通
+- `Stop (ESC)` — 想送 ESC 鍵,**literal mode 送不出來**(literal mode 送的是 byte 0x1b 字元，但有些程式可能不識別)
+- `Clear (Ctrl+L)` — 想送 Ctrl+L,**literal mode 送 0x0c byte 行為視 program 而定**
+
+**為什麼用 named-key 而不是 literal byte:**
+- tmux 的 named-key(`Escape` / `C-l` / `Up` / `Down` 等)是 tmux 主動模擬鍵盤事件,行為 比直接餵 raw byte 可預期
+- 例如 ESC 在 readline-aware 程式 (bash, vim, ...) 走 vi-mode 切換之類,literal 0x1b 跟 named `Escape` 在某些情境行為不同(rare,但存在)
+- 跟使用者「我按了 ESC」的 mental model 對齊
+
+**改:** backend 加 `literal: bool` 參數:
+- `literal=true` → `tmux send-keys -l -t <session> -- <payload>`(原 SPEC 行為)
+- `literal=false` → `tmux send-keys -t <session> -- <payload>`(payload 視作 tmux key spec)
+
+`send_enter=true` 仍然走 `tmux send-keys -t <session> Enter`(named key,跟 literal `\r` 同等)。
+
+**為什麼是 D-level decision:** SPEC §6.4 explicit 寫 `-l`,加參數本質是擴 API 不是改用法。但 SPEC §3.4 預設 presets 跟 §6.4 文字衝突,SPEC 內部自己模糊 —— CLAUDE.md「SPEC 模糊處先選一個合理解釋,寫進 NOTES + commit」。
+
+**SPEC 怎麼處理:** 不直接動 SPEC §6.4(待 M3 polish 時 owner 統一決),NOTES D-12 留 deviation 記錄。對齊 D-10 / D-11 處理方式。
+
+---
+
 ### 2026-05-01 — D-11 attach 預設 stream input mode(SPEC §3.5.1 偏離,owner usage feedback)
 
 **SPEC §3.5.1:** 「Line buffer mode(預設)⭐」 — line buffer 是 piermux 的核心賣點(取代 colony 害 owner 搞壞 Claude session 的場景)。

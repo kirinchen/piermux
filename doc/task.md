@@ -30,11 +30,15 @@
 ### M1f 完成 ✓(ISSUE-006,attach mode 基礎,owner 驗收 ✓)
 - Backend `attach.rs` + 4 commands `8338091` + 點 session = 預設 attach `4e9ff5b`(D-10)
 
-### M1g 開工中(ISSUE-007,line buffer 核心賣點)
-- **本 commit:** `LineBufferInput.tsx` 新元件(原生 textarea + IME isComposing 護欄)+ SessionPanel 加 `inputMode: 'line' | 'stream'` 切換 toggle,**預設 Line**(SPEC §3.5.1)
-- 走 SPEC §9.1「server output 唯讀區 + 下方獨立輸入框」fallback 設計(該 SPEC 原文認可「對 Claude Code 場景更直觀」)— 跳過 §7.3 onData hold 字元的 race / IME 坑
-- Send 內容 = buffer + `\r`(PTY Enter,line discipline 翻 `\n`)
-- **等 owner Windows 真實環境驗(ISSUE-007 完成標準):** attach Claude Code session → line mode 打一段中文 → Enter → Claude 收到完整訊息 + 回覆。**這是 piermux 為什麼存在的 acceptance 一條**
+### M1g 完成 ✓(ISSUE-007,line buffer 核心賣點)
+- LineBufferInput + Line/Stream toggle ship,IME aware,owner 驗收 ✓
+- v0.1.0 commit `3e9f7ab` + D-11 改預設 stream(commit `90609f6`)
+
+### M1e 開工中(ISSUE-005,send_message + quick presets)
+- **本 commit:** `messaging.rs` backend + `SendBar.tsx` frontend + 加 `literal: bool` 參數(NOTES D-12,SPEC §6.4 模糊處)
+- Quick presets 三個 hardcode default(`/syncdesk` / `Stop (ESC)` / `Clear (Ctrl+L)`)
+- `quick_presets` DB 載入 + 編輯 UI 推到 M3 polish(對齊原 ISSUE acceptance 寫法)
+- **等 owner Windows 真實環境驗:** capture 模式下方 SendBar 出現 + 三個 preset 按鈕送對 / 自訂文字送對
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速

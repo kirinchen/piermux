@@ -2,6 +2,7 @@ mod attach;
 mod capture;
 mod commands;
 mod hosts;
+mod messaging;
 mod secret;
 mod sessions;
 mod ssh;
@@ -45,6 +46,8 @@ pub fn run() {
             attach::write_to_session,
             attach::resize_session,
             attach::detach_session,
+            // M1e send_message(不需 attach 直接對 session 送字 / 按鍵,SPEC §3.4 / §6.4)
+            messaging::send_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
