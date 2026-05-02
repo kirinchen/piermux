@@ -39,6 +39,12 @@
 - Quick presets 三個 hardcode default(`/syncdesk` / `Stop (ESC)` / `Clear (Ctrl+L)`)
 - `quick_presets` DB 載入 + 編輯 UI 推到 M3 polish(對齊原 ISSUE acceptance 寫法)
 - **等 owner Windows 真實環境驗:** capture 模式下方 SendBar 出現 + 三個 preset 按鈕送對 / 自訂文字送對
+
+### M1 polish 持續(M1h 推到 M3,sidebar + shell 加進來)
+- M1h tray icon(ISSUE-008)歸到 M3 polish epic — owner 拍板「不是 daily-use 必要」
+- **Sidebar collapsible(本 commit):** HostsView header 加 toggle button(`PanelLeftOpen` / `PanelLeftClose` icons),localStorage 持久化。Sidebar 收合時主畫面 100% 寬。對齊 owner UX 訴求「main view 滿版」
+- **Shell 直連(本 commit,NOTES D-14):** Selection 加 `kind:'shell'`,`attach.rs` 加 `attach_shell` Tauri command(refactor 抽 `open_pty_channel` + `finalize_attach` 共用,attach_session/attach_shell 各自 5 行專屬)。HostTree host 展開後第一個 child 是 ⚡ shell synthetic row,點進去 SessionPanel 走 `attachShell` 開 PTY + `session.shell()`。SPEC §11 vocabulary 擴充
+- **M2a spike 結果(NOTES D-13):** makiko Android cross-compile **過**,只缺 NDK
 ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 - backend `capture_session(host_id, session_name)` — `ssh::run_command` 跑 `tmux capture-pane -t <session>:0 -p -e -S -200`
 - backend `capture_host(host_id)` — host 內並行,Semaphore(3) 限速
@@ -72,10 +78,10 @@ ISSUE-004 acceptance 對齊 SPEC §3.3 + §6.3:
 ### T-spike-line-buffer ✓ 不做(M1g 直接走 fallback 設計繞開)
 M1g 直接走 SPEC §9.1 結尾段提到的「server output 唯讀區 + 下方獨立輸入框」fallback 設計(SPEC 原文認可「對 Claude Code 場景更直觀」),不走 §7.3 範例的「攔截 xterm.onData 累積 buffer」approach,因此沒有 IME / focus 同步等 race 需要 spike。詳 ISSUE-007「2026-05-01 — 直接走 SPEC §9.1 fallback 路徑」段。
 
-### T-spike-android-makiko Spike: makiko Android cross-compile(SPEC §9.3)
-原本是 russh,D-7 swap 成 makiko 後重點不變:
-`cargo check --target aarch64-linux-android` 過。NOTES 記 NDK 版本 / toolchain 設定。
-M2 才迫切。M1 末尾若有閒可先做(免得 M2 第一天炸鍋)。
+### ~~T-spike-android-makiko~~ ✓ done(2026-05-02,NOTES.md D-13)
+
+`cargo check --target aarch64-linux-android` 跑過 — 純 Rust 全鏈路(makiko / Tauri 2 / 全部 crypto deps)cross-compile **過**。`libsqlite3-sys` 卡在需要 NDK 的 `aarch64-linux-android-clang`(C 代碼,sqlite 3 原始碼)— 標準 Tauri Android dev 流程,owner 之後裝 Android Studio + NDK + 設 cargo config 就過。
+**M2a 不會在 D-7 swap 那種坑(makiko 完全炸)上卡關。主線 plan 走得通。**
 
 ---
 

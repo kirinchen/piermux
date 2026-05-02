@@ -195,6 +195,76 @@ DB URL `sqlite:piermux.db` + tauri identifier `dev.kirinchen.piermux` → tauri-
 
 ---
 
+### 2026-05-02 — D-14 加「shell」概念(SPEC §11 vocabulary 擴充)
+
+**動機:** Owner 想要對每個 host 直連 SSH 開 login shell(無 tmux)。場景:
+- Host 沒裝 tmux,但仍想連
+- Quick admin 跑一兩個 command(`uptime` / `df -h` 等)
+- Debug 連線層問題(SSH auth 通不通)
+
+**SPEC §11 詞彙原本:**
+- Session — 該 host 上的一個 tmux session
+
+「shell」是新概念,跟 Session(tmux)平起平坐但意義不同。
+
+**設計:**
+- **Backend:** `attach.rs` 加 `attach_shell(host, cols, rows)` Tauri command。跟 `attach_session` 同流程(SSH connect + PTY allocation + reader task + registry),差別**唯一一行**:
+  - `attach_session`:`session.exec("tmux attach -t SESSION")`
+  - `attach_shell`:`session.shell()`(server 端開 user 預設 login shell)
+- write_to_session / resize_session / detach_session **不分 attach 種類**,共用 4 commands(都認 attach_id),frontend 行為對 shell 跟 tmux session 完全一樣
+- Refactor `attach.rs` 把共用流程抽 `open_pty_channel` + `finalize_attach`,attach_session / attach_shell 各自 5 行專屬
+
+**Frontend UX:**
+- `Selection` 加 `{ kind: 'shell', host: Host }` discriminated 變體
+- HostTree:host 展開後**第一個 child 是 synthetic「⚡ shell」row**,然後才是 tmux sessions。Click 進 SessionPanel attach 模式
+- SessionPanel target prop polymorphic — `{kind:'tmux', session}` | `{kind:'shell'}`,內部依 target 決定:
+  - 標題顯示(session name 還是 "shell")
+  - 走 attach_session 還是 attach_shell
+  - shell 模式不顯 capture mode 切換 / Refresh capture(shell 沒 capture 概念,server 端不存歷史)
+- Detach shell → 回 host capture grid view(跟 detach session 一樣)
+
+**為什麼是 D-level decision:** SPEC §11 定義「Session」是 tmux session,加 shell 是擴詞彙不是改既有概念,但 SPEC 沒明列。CLAUDE.md「動 SPEC 描述的核心 UX 要先問」owner 已透過訊息確認(2026-05-02「Session 都要準備一個沒有 tmux,直接的 ssh,名稱你推薦」)。
+
+**SPEC 怎麼處理:** 不直接動 SPEC §11(待 M3 polish 整理時 owner 統一決),NOTES D-14 留 deviation 記錄。對齊 D-10 / D-11 / D-12 處理方式。
+
+---
+
+### 2026-05-02 — D-13 M2a spike:makiko + Tauri Android cross-compile ✓(只缺 NDK)
+
+**動機:** D-7 swap russh → makiko 時,SPEC §13 deviation 最大不確定點是「makiko 對 Android cross-compile 是否真的可行」。`task.md` 留 `T-spike-android-makiko`,計畫 M2 開工前驗。Owner 拍板 M2 之前先 spike,降低 M2a 第一天炸鍋風險。
+
+**Spike 內容:**
+```bash
+rustup target add aarch64-linux-android
+cd src-tauri && cargo check --target aarch64-linux-android
+```
+
+**結果:**
+- ✅ `rust-std` for `aarch64-linux-android` 安裝成功
+- ✅ **純 Rust 全鏈路 cross-compile 過:**`makiko` 0.2.5 / `tauri` 2 / `tao` / `wry` / `curve25519-dalek` 4.1 / `ed25519-dalek` 2.2 / `x25519-dalek` 2.0 / `chacha20` / `aes-gcm` / `rsa` / `tokio` / `sqlx-macros` 全部都 `Checking ... ✓`
+- ❌ **`libsqlite3-sys 0.30.1` 卡在 C compiler:** `tauri-plugin-sql` transitively 拉,sqlite 是 C 原始碼,cross-compile 需要 `aarch64-linux-android-clang`,環境裡沒 NDK 找不到。
+
+**結論:**
+- **D-6 / D-7 最大不確定點(makiko 對 Android)解除** — 純 Rust 部分在 Android target 全乾淨。makiko swap 決策**正確**,M2 走主線,不需 SPEC §9.3 fallback A(限縮 Android 只做 capture / send / launch JuiceSSH)。
+- **唯一阻塞是 NDK**,裝了就過。這是**所有 Rust SQLite app for Android 都要做的事**(sqlx / rusqlite 都過 libsqlite3-sys),非 piermux 特殊問題。Tauri Android docs 也標準化處理。
+
+**M2a 開工前置(寫進 ISSUE-006 / 之後的 EPIC-002 issue 時 reference):**
+1. Owner Windows 裝 Android Studio(內含 NDK 27)or 純 NDK + JDK 17
+2. 設環境變數:`ANDROID_HOME` / `NDK_HOME` / `JAVA_HOME`
+3. `~/.cargo/config.toml` 加 cross-compile linker:
+   ```toml
+   [target.aarch64-linux-android]
+   linker = "<NDK_PATH>/toolchains/llvm/prebuilt/windows-x86_64/bin/aarch64-linux-android33-clang.cmd"
+   ```
+4. 設 `CC_aarch64_linux_android=...clang.cmd` 給 `cc-rs` 找到
+5. 重跑 `cargo check --target aarch64-linux-android` → 預期通(libsqlite3-sys 也能編)
+6. `npm run tauri android init` 產 Gradle scaffold
+7. `npm run tauri android dev` 真機 / 模擬器跑
+
+**`task.md` `T-spike-android-makiko` 可標 done**(本 spike 滿足 acceptance:cargo check 過,NDK 版本 / toolchain 設定有 reference docs)。
+
+---
+
 ### 2026-05-02 — D-12 send_message 加 `literal: bool` 參數(SPEC §6.4 模糊處)
 
 **SPEC §6.4 文字:**

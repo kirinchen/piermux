@@ -66,6 +66,11 @@ _(agents and humans append dated notes as they work)_
 
 ### 2026-05-02
 - **M1e send_message + quick presets 開工(本 commit)**:`messaging.rs` backend + `SendBar.tsx` frontend(SessionPanel capture mode 下方)。三個 hardcode preset:`/syncdesk` literal+Enter / `Stop (ESC)` named-key / `Clear (Ctrl+L)` named-key。Backend 加 `literal: bool` 參數(NOTES D-12,SPEC §6.4 寫死 `-l` 但 §3.4 預設 presets 含 ESC/Ctrl+L 需 named-key,SPEC 內部模糊)。`quick_presets` DB 編輯 UI 推到 M3。`cargo clippy -- -D warnings` + `tsc --noEmit` + `npm run build` 過(1894 modules / 216KB gzip)。等 owner Windows 環境驗 send 是否真的到 server。
+- **M2a Android cross-compile spike + M1 polish(本 commit)**:owner 拍板「M1h tray icon 推到 M3 epic,先做 sidebar collapsible + shell 直連」+ 順手做 M2a spike(`task.md T-spike-android-makiko` 早一週做完)。詳細 NOTES.md:
+  - **D-13 M2a spike ✓:** `cargo check --target aarch64-linux-android` 純 Rust 部分(makiko / Tauri 2 / 全部 crypto deps)全過。`libsqlite3-sys` 需要 NDK clang(標準 Tauri Android 流程)。**D-7 makiko swap 決策驗證有效,M2a 不會在這坑卡死。**
+  - **D-14 shell 直連:** Selection 加 `kind:'shell'`,backend `attach.rs` 加 `attach_shell` 共用既有 PTY/registry 流程。HostTree host 展開後 ⚡ shell synthetic row。SessionPanel target prop polymorphic(`{kind:'tmux',session}` | `{kind:'shell'}`),shell 模式自動鎖 attach。SPEC §11 詞彙擴充。
+  - **Sidebar collapsible:** HostsView header `[PanelLeft]` toggle,localStorage 持久化,主畫面滿版。
+  - `cargo clippy -- -D warnings` + `tsc --noEmit` + `npm run build` 過(1894 modules / 217KB gzip)。
 
 ## Retrospective
 

@@ -1,6 +1,8 @@
-// M1f attach commands(SPEC §3.2 + §6.5)。
+// M1f attach commands(SPEC §3.2 + §6.5)+ M1.5 shell direct(NOTES D-14)。
 //
 // - attach_session(host, session, cols, rows)  — 開 PTY + tmux attach,回 attach_id
+// - attach_shell(host, cols, rows)             — 開 PTY + 用戶 login shell(無 tmux,
+//                                                NOTES D-14 新概念)
 // - write_to_session(id, data)                 — 把字串送進 PTY stdin
 // - resize_session(id, cols, rows)             — 通知 server window 大小變
 // - detach_session(id)                         — 收 close + 把 reader task abort
@@ -60,36 +62,19 @@ impl Drop for AttachHandle {
     }
 }
 
-#[tauri::command]
-pub async fn attach_session(
-    app: AppHandle,
-    pool: State<'_, SqlitePool>,
-    registry: State<'_, AttachRegistry>,
-    host_id: String,
-    session_name: String,
+/// 在已連的 SshSession 上開 channel + request PTY,回 (Session, Receiver)。
+/// `attach_session` / `attach_shell` 共用,差別在後面是 exec(tmux) 還是 shell()。
+async fn open_pty_channel(
+    ssh: &SshSession,
     cols: u32,
     rows: u32,
-) -> Result<String, String> {
-    let host = hosts::fetch_one(pool.inner(), &host_id)
-        .await
-        .map_err(|e| format!("fetch host: {e}"))?;
-    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
-    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
-    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
-
-    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
-        .await
-        .map_err(|e| format!("ssh connect: {e}"))?;
-    let ssh = Arc::new(ssh);
-
-    // 開 channel session
-    let (session, mut sess_rx) = ssh
+) -> Result<(makiko::Session, makiko::SessionReceiver), String> {
+    let (session, sess_rx) = ssh
         .client()
         .open_session(ChannelConfig::default())
         .await
         .map_err(|e| format!("open session: {e}"))?;
 
-    // request PTY
     let pty_req = PtyRequest {
         term: "xterm-256color".to_string(),
         width: cols,
@@ -105,20 +90,22 @@ pub async fn attach_session(
         .await
         .map_err(|e| format!("request_pty wait: {e}"))?;
 
-    // exec tmux attach -t <session>
-    let cmd = format!("tmux attach -t {}", shell_quote(&session_name));
-    session
-        .exec(cmd.as_bytes())
-        .map_err(|e| format!("exec request: {e}"))?
-        .wait()
-        .await
-        .map_err(|e| format!("exec wait: {e}"))?;
+    Ok((session, sess_rx))
+}
 
+/// 拿準備好的 (Session, Receiver) + 已生成的 attach_id,spawn reader task,
+/// 把資源塞進 registry。共用給 attach_session / attach_shell。
+async fn finalize_attach(
+    app: &AppHandle,
+    registry: &AttachRegistry,
+    ssh: Arc<SshSession>,
+    session: makiko::Session,
+    mut sess_rx: makiko::SessionReceiver,
+) -> String {
     let attach_id = Uuid::new_v4().to_string();
     let app_clone = app.clone();
     let attach_id_clone = attach_id.clone();
 
-    // reader task:把 stdout/stderr 轉發給 frontend,EOF / Exit / 錯誤都 emit close
     let reader = tokio::spawn(async move {
         loop {
             match sess_rx.recv().await {
@@ -152,7 +139,79 @@ pub async fn attach_session(
 
     let mut map = registry.inner.lock().await;
     map.insert(attach_id.clone(), handle);
-    Ok(attach_id)
+    attach_id
+}
+
+#[tauri::command]
+pub async fn attach_session(
+    app: AppHandle,
+    pool: State<'_, SqlitePool>,
+    registry: State<'_, AttachRegistry>,
+    host_id: String,
+    session_name: String,
+    cols: u32,
+    rows: u32,
+) -> Result<String, String> {
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
+    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
+    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
+
+    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
+        .await
+        .map_err(|e| format!("ssh connect: {e}"))?;
+    let ssh = Arc::new(ssh);
+
+    let (session, sess_rx) = open_pty_channel(&ssh, cols, rows).await?;
+
+    let cmd = format!("tmux attach -t {}", shell_quote(&session_name));
+    session
+        .exec(cmd.as_bytes())
+        .map_err(|e| format!("exec request: {e}"))?
+        .wait()
+        .await
+        .map_err(|e| format!("exec wait: {e}"))?;
+
+    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx).await)
+}
+
+/// M1.5 直連 shell(NOTES D-14):跟 attach_session 同流程,差別在 exec("tmux attach")
+/// 換成 `session.shell()` — server 端開 user 預設 login shell,不走 tmux。
+/// 場景:host 沒裝 tmux / 想 quick admin 一行命令 / debug 連線。
+#[tauri::command]
+pub async fn attach_shell(
+    app: AppHandle,
+    pool: State<'_, SqlitePool>,
+    registry: State<'_, AttachRegistry>,
+    host_id: String,
+    cols: u32,
+    rows: u32,
+) -> Result<String, String> {
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
+    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
+    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
+
+    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
+        .await
+        .map_err(|e| format!("ssh connect: {e}"))?;
+    let ssh = Arc::new(ssh);
+
+    let (session, sess_rx) = open_pty_channel(&ssh, cols, rows).await?;
+
+    // 跟 attach_session 唯一差別:不 exec tmux attach,改 call shell()
+    session
+        .shell()
+        .map_err(|e| format!("shell request: {e}"))?
+        .wait()
+        .await
+        .map_err(|e| format!("shell wait: {e}"))?;
+
+    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx).await)
 }
 
 #[tauri::command]

@@ -38,6 +38,10 @@ export const api = {
     rows: number,
   ) =>
     invoke<string>("attach_session", { hostId, sessionName, cols, rows }),
+  // 直連 login shell,無 tmux(NOTES.md D-14)。回 attach_id,後續 write/resize/detach
+  // 跟 attachSession 共用同一組 commands(都認 attach_id)
+  attachShell: (hostId: string, cols: number, rows: number) =>
+    invoke<string>("attach_shell", { hostId, cols, rows }),
   writeToSession: (sessionId: string, data: string) =>
     invoke<void>("write_to_session", { sessionId, data }),
   resizeSession: (sessionId: string, cols: number, rows: number) =>

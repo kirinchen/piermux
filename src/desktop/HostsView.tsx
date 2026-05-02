@@ -1,5 +1,11 @@
 import * as React from "react";
-import { RefreshCw, Loader2, Terminal as TerminalIcon } from "lucide-react";
+import {
+  RefreshCw,
+  Loader2,
+  Terminal as TerminalIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { toast } from "sonner";
 import { HostTree, type Selection } from "./HostTree";
 import { SessionPanel } from "./SessionPanel";
@@ -10,10 +16,30 @@ import { Button } from "@/components/ui/button";
 import { useRefreshAll } from "@/hooks/useCapture";
 import type { Host, Session } from "@/lib/types";
 
+const SIDEBAR_KEY = "piermux:sidebarCollapsed";
+
 export function HostsView() {
   const [selection, setSelection] = React.useState<Selection>(null);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Host | null>(null);
+  // Sidebar 收合狀態,localStorage 持久化
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState<boolean>(
+    () => {
+      try {
+        return window.localStorage.getItem(SIDEBAR_KEY) === "true";
+      } catch {
+        return false;
+      }
+    },
+  );
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
+    } catch {
+      // ignore — quota / SecurityError
+    }
+  }, [sidebarCollapsed]);
+
   const refreshAll = useRefreshAll();
 
   const openAdd = () => {
@@ -42,7 +68,7 @@ export function HostsView() {
 
   // session 單一視圖 → 按返回回 host grid
   const backToHostGrid = () => {
-    if (selection?.kind === "session") {
+    if (selection?.kind === "session" || selection?.kind === "shell") {
       setSelection({ kind: "host", host: selection.host });
     }
   };
@@ -65,12 +91,27 @@ export function HostsView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-border px-4 py-2">
-        <div>
-          <h1 className="text-lg font-semibold">piermux</h1>
-          <p className="text-xs text-muted-foreground">
-            跨多機 tmux session GUI · M1d capture mode
-          </p>
+      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((c) => !c)}
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={sidebarCollapsed ? "展開 Hosts 側欄" : "收合 Hosts 側欄(主畫面滿版)"}
+            aria-label="toggle sidebar"
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </button>
+          <div>
+            <h1 className="text-lg font-semibold leading-tight">piermux</h1>
+            <p className="text-xs text-muted-foreground">
+              跨多機 tmux session GUI · M1 desktop
+            </p>
+          </div>
         </div>
         <Button
           size="sm"
@@ -89,13 +130,15 @@ export function HostsView() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <HostTree
-          selection={selection}
-          onSelect={setSelection}
-          onAdd={openAdd}
-          onEdit={openEdit}
-          onToggleMulti={toggleMulti}
-        />
+        {!sidebarCollapsed && (
+          <HostTree
+            selection={selection}
+            onSelect={setSelection}
+            onAdd={openAdd}
+            onEdit={openEdit}
+            onToggleMulti={toggleMulti}
+          />
+        )}
         <div className="flex-1 overflow-hidden">
           {!selection && <EmptyState />}
           {selection?.kind === "host" && (
@@ -107,7 +150,14 @@ export function HostsView() {
           {selection?.kind === "session" && (
             <SessionPanel
               host={selection.host}
-              session={selection.session}
+              target={{ kind: "tmux", session: selection.session }}
+              onBack={backToHostGrid}
+            />
+          )}
+          {selection?.kind === "shell" && (
+            <SessionPanel
+              host={selection.host}
+              target={{ kind: "shell" }}
               onBack={backToHostGrid}
             />
           )}
@@ -135,8 +185,8 @@ function EmptyState() {
     <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
       <TerminalIcon className="h-8 w-8 opacity-30" />
       <p className="text-sm">
-        點左側 host 看 capture grid · 點 session 看單一視圖 · checkbox 多選 host
-        並列比較
+        點 host 看 grid · 點 session / shell 看單一視圖 · checkbox 多選
+        host 並列
       </p>
     </div>
   );

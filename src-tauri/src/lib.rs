@@ -41,8 +41,9 @@ pub fn run() {
             capture::capture_session,
             capture::capture_host,
             capture::capture_all,
-            // M1f attach(雙向 PTY,SPEC §3.2 / §6.5)
+            // M1f attach(雙向 PTY,SPEC §3.2 / §6.5)+ shell direct(NOTES D-14)
             attach::attach_session,
+            attach::attach_shell,
             attach::write_to_session,
             attach::resize_session,
             attach::detach_session,

@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Square,
   CheckSquare,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -22,15 +23,17 @@ import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
 import type { Host, HostConnectionStatus, Session } from "@/lib/types";
 
-// Selection 的三種模式 + null:
+// Selection 的四種模式 + null:
 // - kind:'host'      → 右側顯示 HostCaptureGrid(該 host 所有 session 的 capture grid)
-// - kind:'session'   → 右側顯示 SessionPanel(單一 session 的大 capture / attach)
+// - kind:'session'   → 右側顯示 SessionPanel(單一 tmux session 的大 capture / attach)
+// - kind:'shell'     → 右側顯示 SessionPanel(直連 login shell,無 tmux,NOTES D-14)
 // - kind:'multi-host'→ 右側顯示 MultiHostCaptureGrid(多 host 並列比較)
 // `null` = 沒選
 export type Selection =
   | null
   | { kind: "host"; host: Host }
   | { kind: "session"; host: Host; session: Session }
+  | { kind: "shell"; host: Host }
   | { kind: "multi-host"; hosts: Host[] };
 
 type Props = {
@@ -69,12 +72,9 @@ export function HostTree({
       toast.success(`已刪除 ${h.display_name}`);
       // 刪除後若有 selection 牽涉到這個 host,清掉
       if (
-        selection?.kind === "host" &&
-        selection.host.id === h.id
-      ) {
-        onSelect(null);
-      } else if (
-        selection?.kind === "session" &&
+        (selection?.kind === "host" ||
+          selection?.kind === "session" ||
+          selection?.kind === "shell") &&
         selection.host.id === h.id
       ) {
         onSelect(null);
@@ -269,6 +269,13 @@ function HostRow({
 
       {expanded && (
         <div className="ml-6 border-l border-border pl-2">
+          <ShellRow
+            host={host}
+            selected={
+              selection?.kind === "shell" && selection.host.id === host.id
+            }
+            onSelect={() => onSelect({ kind: "shell", host })}
+          />
           {sessions.isLoading && (
             <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -364,6 +371,34 @@ function SessionRow({
         )}
       </button>
     </div>
+  );
+}
+
+// ShellRow:host 展開後的第一個 child,直連 login shell(無 tmux,NOTES D-14)
+function ShellRow({
+  host,
+  selected,
+  onSelect,
+}: {
+  host: Host;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-muted ${
+        selected ? "bg-muted" : ""
+      }`}
+      title={`直連 ${host.ssh_user}@${host.ssh_host}(無 tmux,login shell)`}
+    >
+      <Zap className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+      <span className="flex-1 truncate font-mono italic text-foreground/80">
+        shell
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground/70">直連 ssh</span>
+    </button>
   );
 }
 
