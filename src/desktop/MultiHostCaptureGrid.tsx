@@ -53,7 +53,7 @@ export function MultiHostCaptureGrid({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+      <header className="flex items-start justify-between gap-3 border-b-2 border-border bg-muted/40 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <Server className="h-4 w-4 text-muted-foreground" />
@@ -126,8 +126,8 @@ function HostSection({
   };
 
   return (
-    <section className="border-b border-border last:border-b-0">
-      <div className="flex items-center justify-between bg-muted/30 px-3 py-1.5">
+    <section className="border-b-2 border-border last:border-b-0">
+      <div className="flex items-center justify-between border-b border-border bg-muted px-3 py-2">
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
           <Server className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <h3 className="truncate text-sm font-semibold">
