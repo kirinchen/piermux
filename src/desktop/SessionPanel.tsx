@@ -194,6 +194,16 @@ export function SessionPanel({ host, target, onBack }: Props) {
 
     const start = async () => {
       try {
+        // 在送 attach 之前強制 fit() 一次 — init effect 用 requestAnimationFrame
+        // 排 fit,可能在這個 attach effect 跑時還沒 fire,導致 term.cols/rows 還是
+        // 預設 80x24。tmux attach 第一次重畫用我們送的 cols/rows,送錯就只畫那麼大,
+        // 之後 resize 也補不回 history。Owner 反映「要先 detach 再 attach 才正常」
+        // = 第二次重 attach 時 fit 已經做過,讀到對的尺寸
+        try {
+          fitRef.current?.fit();
+        } catch {
+          // container 還沒 layout 完;退回預設 80x24,resize 之後 tmux 會補
+        }
         term.clear();
         const cols = term.cols || 80;
         const rows = term.rows || 24;
