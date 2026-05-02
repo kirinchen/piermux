@@ -37,11 +37,11 @@ export function HostCaptureGrid({ host, onSelectSession }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-3 border-b-2 border-border bg-muted/40 px-4 py-3">
+      <header className="flex items-start justify-between gap-3 border-b-2 border-border border-l-4 border-l-amber-500/70 bg-zinc-800 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <Server className="h-4 w-4 text-muted-foreground" />
-            <h2 className="truncate text-base font-semibold">
+            <Server className="h-4 w-4 text-amber-400/90" />
+            <h2 className="truncate text-base font-bold">
               {host.display_name}
             </h2>
             <span className="shrink-0 text-xs text-muted-foreground">
