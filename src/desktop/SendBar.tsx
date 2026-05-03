@@ -92,10 +92,11 @@ export function SendBar({ host, session }: Props) {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendCustom(true); // Enter 預設送 + Enter
-    }
+    // 純 Enter 才 send;任一 modifier + Enter 都當「不要 send」意圖
+    if (e.key !== "Enter") return;
+    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    handleSendCustom(true); // Enter 預設送 + Enter
   };
 
   return (

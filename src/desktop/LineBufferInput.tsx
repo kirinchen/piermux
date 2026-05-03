@@ -37,10 +37,31 @@ export function LineBufferInput({ onSend, disabled }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // IME 組字進行中:Enter 是確認組字,不要送出
     if (e.nativeEvent.isComposing) return;
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key !== "Enter") return;
+
+    // Shift+Enter:textarea native 直接插 \n,我們不擋
+    if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) return;
+
+    // Ctrl / Alt / Cmd + Enter:native 行為不穩(部分 browser 沒事、Tauri WebView2
+    // 在 Windows 對 Alt+Enter 也有可能被 OS menu modifier 截),統一手動在 cursor
+    // 位置插 \n,確保「任何 modifier+Enter 都是換行」一致體驗
+    if (e.ctrlKey || e.altKey || e.metaKey) {
       e.preventDefault();
-      handleSend();
+      const target = e.currentTarget;
+      const start = target.selectionStart ?? buffer.length;
+      const end = target.selectionEnd ?? buffer.length;
+      const next = buffer.slice(0, start) + "\n" + buffer.slice(end);
+      setBuffer(next);
+      // cursor 移到新 \n 之後
+      requestAnimationFrame(() => {
+        target.selectionStart = target.selectionEnd = start + 1;
+      });
+      return;
     }
+
+    // 純 Enter:send
+    e.preventDefault();
+    handleSend();
   };
 
   return (
@@ -50,7 +71,7 @@ export function LineBufferInput({ onSend, disabled }: Props) {
           Next send
         </span>
         <span className="text-muted-foreground/80">
-          Enter 整段送出 + ↩ · Shift+Enter 換行 · IME 組字 Enter 不會誤送
+          Enter 整段送出 + ↩ · Shift/Ctrl/Alt+Enter 換行 · IME 組字 Enter 不會誤送
         </span>
         <span className="ml-auto font-mono text-muted-foreground">
           {buffer.length} char{buffer.length === 1 ? "" : "s"}
