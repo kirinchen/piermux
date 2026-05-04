@@ -33,6 +33,12 @@ use crate::ssh::{self, SshSession};
 
 const HOST_CONCURRENCY: usize = 3;
 
+/// `tmux capture-pane -S -<N>`:從目前可見區往上抓 N 行 scrollback。
+/// 2000 行對 AI agent session 夠用(一個 turn 100~500 行,2000 行 ≈ 4~20 個 turn);
+/// SSH 傳輸量 ~200KB / session,LAN 無感;xterm scrollback 上限 5000,留餘裕。
+/// 需要更多歷史請走 attach + tmux copy mode(`prefix [`)。
+const TMUX_CAPTURE_LINES: usize = 2000;
+
 /// 對齊 SPEC §6.3 回傳。`content` 含 ANSI escape codes(`tmux capture-pane -e`)。
 #[derive(Debug, Serialize, Clone)]
 pub struct CaptureResult {
@@ -198,8 +204,9 @@ async fn capture_via_session(
     session_name: &str,
 ) -> Result<CaptureResult> {
     let cmd = format!(
-        "tmux capture-pane -t {}:0 -p -e -S -200",
-        shell_quote(session_name)
+        "tmux capture-pane -t {}:0 -p -e -S -{}",
+        shell_quote(session_name),
+        TMUX_CAPTURE_LINES,
     );
     let stdout = ssh_session.exec(&cmd).await.with_context(|| {
         format!(
@@ -220,10 +227,11 @@ async fn capture_one(host: &Host, session_name: &str) -> Result<CaptureResult> {
     let auth = sessions::build_auth(host, password.as_deref())?;
     let port = sessions::port_u16(host)?;
 
-    // -p 印到 stdout / -e 含 ANSI escape codes / -S -200 從往回 200 行起
+    // -p 印到 stdout / -e 含 ANSI escape codes / -S -<N> 從往回 N 行起
     let cmd = format!(
-        "tmux capture-pane -t {}:0 -p -e -S -200",
-        shell_quote(session_name)
+        "tmux capture-pane -t {}:0 -p -e -S -{}",
+        shell_quote(session_name),
+        TMUX_CAPTURE_LINES,
     );
 
     let stdout = ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, &cmd)

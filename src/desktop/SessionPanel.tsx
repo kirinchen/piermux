@@ -95,6 +95,18 @@ export function SessionPanel({ host, target, onBack }: Props) {
     fitRef.current = fit;
     requestAnimationFrame(() => fit.fit());
 
+    // Wheel handler:不要讓 xterm 把滾輪翻成 arrow up/down 送進 shell。
+    // alt-screen(tmux / vim / less)預設會這樣翻,bash 收到就當 history navigation,
+    // owner 反映滾輪變成「選歷史輸入」很煩。改成 alt-screen 吞掉、normal screen 走
+    // xterm 自己的 scrollback(5000 行)。要在 tmux 捲歷史用 prefix+[ 進 copy mode。
+    term.attachCustomWheelEventHandler((event) => {
+      if (term.buffer.active.type === "alternate") {
+        event.preventDefault();
+        return false;
+      }
+      return true;
+    });
+
     return () => {
       term.dispose();
       xtermRef.current = null;

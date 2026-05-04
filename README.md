@@ -76,6 +76,27 @@ npm run tauri build    # 出 release artifact 到 src-tauri/target/release/bundl
 
 ---
 
+## Tips
+
+### Attach mode 想用滾輪捲 tmux 歷史
+
+Attach mode 下 piermux 會把滾輪事件吞掉(避免被 bash 當成 ↑↓ 觸發 history navigation)。要在 attach mode 滾 tmux 自己的 history 有兩條路:
+
+1. **tmux copy mode**(server 不用改):`prefix + [` 進 copy mode → PgUp / 方向鍵滾 → `q` 離開
+2. **server 端 tmux mouse on**(一勞永逸):在你常 attach 的 server 加進 `~/.tmux.conf`:
+   ```
+   set -g mouse on
+   ```
+   然後 `tmux source-file ~/.tmux.conf` 重載。之後 attach mode 滾輪就會直接捲 tmux history
+
+要看更多歷史的另一條路是切到 **capture mode**(右上 [Detach] 旁的 mode 切換)— 直接抓 tmux 最後 2000 行 scrollback,不用攔截鍵盤。
+
+### Shell 直連模式滾輪可正常用
+
+shell 直連(host tree 上的 ⚡ row)走 normal screen,xterm 自己有 5000 行 scrollback,滾輪直接捲。
+
+---
+
 ## 技術選型
 
 - **[Tauri 2](https://tauri.app/)**(Rust + WebView)— 跨平台原生 app shell
