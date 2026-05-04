@@ -21,7 +21,7 @@ owner: kirin
 - `desktop/HostCaptureGrid.tsx` — 單 host capture grid view(host name click 進)
 - `desktop/MultiHostCaptureGrid.tsx` — 多 host 並列(checkbox 勾 ≥1 進);內部 `HostSection` per host
 - `desktop/CaptureCell.tsx` — 一個 session 的 mini xterm capture cell,grid 用
-- `desktop/SessionPanel.tsx` — 單一 target panel,target = `{kind:'tmux',session}` 或 `{kind:'shell'}`。內部 `mode: 'capture'|'attach'` + `inputMode: 'line'|'stream'`,attach 時 xterm 啟用 stdin
+- `desktop/SessionPanel.tsx` — 單一 target panel,target = `{kind:'tmux',session}` 或 `{kind:'shell'}`。內部 `mode: 'capture'|'attach'` + `inputMode: 'line'|'stream'`,attach 時 xterm 啟用 stdin。Attach mode 下對 `attach-output-<id>` payload strip 掉 `\x1b[?(1049|47|1047|1048)[hl]` → xterm 永遠留在 normal buffer → scrollback(20000 行)生效 → 滾輪 / scrollbar 直接捲這次 attach 的輸出。Detach / mode 切換時 `term.clear()` 清掉
 - `desktop/LineBufferInput.tsx` — line mode 的 textarea,IME-aware Enter
 - `desktop/SendBar.tsx` — capture mode 下方一次性 send_message + quick presets
 - `desktop/HostFormDialog.tsx` — 新增 / 編輯 host

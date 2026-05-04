@@ -85,7 +85,9 @@ export function SessionPanel({ host, target, onBack }: Props) {
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
       disableStdin: true,
-      scrollback: 5000,
+      // 20000 行 ≈ 1.6 MB。Attach mode 用 strip-alt-screen 法後,
+      // tmux 的全部輸出都會走 normal buffer scrollback,需要大一點容量
+      scrollback: 20000,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -95,10 +97,10 @@ export function SessionPanel({ host, target, onBack }: Props) {
     fitRef.current = fit;
     requestAnimationFrame(() => fit.fit());
 
-    // Wheel handler:不要讓 xterm 把滾輪翻成 arrow up/down 送進 shell。
-    // alt-screen(tmux / vim / less)預設會這樣翻,bash 收到就當 history navigation,
-    // owner 反映滾輪變成「選歷史輸入」很煩。改成 alt-screen 吞掉、normal screen 走
-    // xterm 自己的 scrollback(5000 行)。要在 tmux 捲歷史用 prefix+[ 進 copy mode。
+    // Wheel handler 安全網:理論上 attach 已 strip alt-screen,xterm 永遠在 normal
+    // buffer,wheel 預設行為(滾 scrollback)會生效不需要這層。但為了防禦性 — 萬一
+    // 哪個 inner app 自己送了 alt-screen toggle 沒被 strip 漏掉,這邊吞掉避免 wheel
+    // 被翻成 arrow up/down 誤觸 bash history
     term.attachCustomWheelEventHandler((event) => {
       if (term.buffer.active.type === "alternate") {
         event.preventDefault();
@@ -239,7 +241,17 @@ export function SessionPanel({ host, target, onBack }: Props) {
           `attach-output-${aid}`,
           (e) => {
             const t = xtermRef.current;
-            if (t) t.write(e.payload);
+            if (!t) return;
+            // 把 alt-screen toggle 從進來的 bytes strip 掉 → xterm 一直留在 normal
+            // buffer → scrollback(20000 行)生效 → 滾輪 / scrollbar 直接在主 xterm
+            // 滾就能看到先前內容(像 Xshell 那樣)。代價是 tmux 的 in-place 重畫
+            // 會把舊內容推進 scrollback,看起來會有重複片段,但能看到歷史比好看重要。
+            // \x1b[?1049h/l = smcup/rmcup;47/1047/1048 是 legacy alt-screen 變體
+            const cleaned = e.payload.replace(
+              /\x1b\[\?(?:1049|47|1047|1048)[hl]/g,
+              "",
+            );
+            t.write(cleaned);
           },
         );
 
@@ -284,6 +296,9 @@ export function SessionPanel({ host, target, onBack }: Props) {
       if (idToClose) {
         api.detachSession(idToClose).catch(() => {});
       }
+      // Detach 或切到 capture mode 時清空 xterm 內容 + scrollback。
+      // 對齊 user 預期:歷史紀錄是 attach 期間限定,detach 後不該還在
+      xtermRef.current?.clear();
       setAttachId(null);
     };
   }, [mode, host.id, targetId, target, onBack]);
