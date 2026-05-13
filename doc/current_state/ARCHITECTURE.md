@@ -43,6 +43,14 @@ owner: kirin
 - `ssh.rs` — makiko 0.2.5 wrapper:`connect()` 回 `SshSession`(共用 connection)+ `SshSession::exec()` + `run_command()`(one-shot)+ `test_connection()`。Server pubkey 接受 any(M1b 起);auth 支援 password + key(Ed25519/RSA);`SshSession::client()` 暴露給 attach.rs 開 PTY channel
 - `migrations/0001_initial.sql` — 4 張表:hosts / ui_preferences / quick_presets / capture_cache(SPEC §5)
 
+### Android scaffold (`src-tauri/gen/android/`)
+
+M2a 起步(2026-05-13,D-15)用 `npm run tauri android init` 生的 Android Studio project,含 Gradle 配置(`build.gradle.kts` / `settings.gradle` / `gradle.properties` / `gradlew(.bat)`)+ `app/`(AndroidManifest / Kotlin entry / resources)+ `buildSrc/`。Tauri 自己 scaffold 一份 `.gitignore` 排掉 build artifacts。實際 Kotlin/Java code 還沒寫(M2b 起才有 piermux-specific frontend / IPC 改動)。
+
+### Build infrastructure (`.cargo/config.toml`)
+
+D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-linux-androideabi` / `i686-linux-android` / `x86_64-linux-android`)寫 linker → NDK r27d (`27.3.13750724`) 的 `<TARGET>24-clang.cmd`(API level 24)。**路徑 pin 死 owner 機器**,他人接手要自己改 / 用 `CARGO_TARGET_<TRIPLE>_LINKER` env override。
+
 ## 2. Interactions
 
 ```
@@ -106,7 +114,8 @@ owner: kirin
 - **Secrets:** `keyring` 3.6 with `apple-native` / `windows-native` / `sync-secret-service` features(D-9)
 - **Async runtime:** Tokio 1
 - **Crypto:** transitive via makiko(`ed25519-dalek` 2.2 / `x25519-dalek` 2.0 / `chacha20` / `aes-gcm` / `rsa` 0.9)
-- **Build:** Tauri builds `.msi`(WiX 3)+ `.exe`(NSIS 3.11),不簽 cert(M3 polish 才考慮)。Standalone `.exe` 在 `target/release/piermux.exe`,綠色版可直接跑
+- **Build (desktop):** Tauri builds `.msi`(WiX 3)+ `.exe`(NSIS 3.11),不簽 cert(M3 polish 才考慮)。Standalone `.exe` 在 `target/release/piermux.exe`,綠色版可直接跑
+- **Build (Android, M2a setup ✓ 2026-05-13):** Android NDK **r27d (27.3.13750724)** + JDK 21 + Gradle(via Tauri `gen/android/`)。Cross-compile linker 寫在 `.cargo/config.toml`(D-15)。Min SDK API 24(Android 7.0)。實際 `tauri android dev` / `build` 還沒跑過實機,只驗到 `cargo check --target aarch64-linux-android` 通
 
 ## 5. External dependencies
 
@@ -118,7 +127,7 @@ owner: kirin
 
 ## 6. Pointers to deeper docs
 
-- **Decision log:** [`../../NOTES.md`](../../NOTES.md) D-1..D-14(SPEC 模糊處 / SPEC deviation / spike 結果)
+- **Decision log:** [`../../NOTES.md`](../../NOTES.md) D-1..D-15(SPEC 模糊處 / SPEC deviation / spike 結果)
 - **SPEC:** [`../SPEC.md`](../SPEC.md) — 產品意圖
 - **Sprint / Issues:** [`../Sprint/SPRINT-2026-W18.md`](../Sprint/SPRINT-2026-W18.md) + [`../Issue/`](../Issue/) ISSUE-001..008
 - **Tasks:** [`../task.md`](../task.md)
@@ -127,4 +136,4 @@ owner: kirin
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-02(M1 desktop preview shipped + v0.1.0 release)*
+*Last updated: 2026-05-13(M2a Android scaffold + cross-compile setup,D-15)*

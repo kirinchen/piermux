@@ -1,0 +1,17 @@
+# Android cross-compile linker config (M2)
+# NDK r27d (27.3.13750724) — see NOTES.md D-13 / D-15
+# Min API 24 (Android 7.0) per Tauri 2 default.
+# Path pinned to current dev machine; CI / other devs should override via
+# CARGO_TARGET_<TRIPLE>_LINKER env vars or their own .cargo/config.
+
+[target.aarch64-linux-android]
+linker = "C:\\Users\\kirin\\AppData\\Local\\Android\\Sdk\\ndk\\27.3.13750724\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\aarch64-linux-android24-clang.cmd"
+
+[target.armv7-linux-androideabi]
+linker = "C:\\Users\\kirin\\AppData\\Local\\Android\\Sdk\\ndk\\27.3.13750724\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\armv7a-linux-androideabi24-clang.cmd"
+
+[target.i686-linux-android]
+linker = "C:\\Users\\kirin\\AppData\\Local\\Android\\Sdk\\ndk\\27.3.13750724\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\i686-linux-android24-clang.cmd"
+
+[target.x86_64-linux-android]
+linker = "C:\\Users\\kirin\\AppData\\Local\\Android\\Sdk\\ndk\\27.3.13750724\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\x86_64-linux-android24-clang.cmd"

@@ -5,7 +5,9 @@
 
 ## Current milestone
 
-**M1b 收尾 + 預備 M1c → M1d**(實作中,2026-04-30)— M1c real backend 已 ship,差 keyring bug owner workaround 收尾就把 M1b/M1c 都 resolved。M1d capture 未開工。可能換 Windows-local agent 接手(D-8)。
+**M2a 起步:Android cross-compile 設定完成(2026-05-13)** — D-13 spike 預測的「裝完 NDK 就過」驗證成功。NDK r27d (27.3.13750724) 安裝 + `.cargo/config.toml` linker 設好 + `npm run tauri android init` 跑完。`cargo check --target aarch64-linux-android` 全鏈路(makiko / sqlx-sqlite / libsqlite3-sys / tauri)1 分 1 秒過。詳 D-15。
+
+**M1 desktop preview** 已 ship v0.1.0(2026-05-01)。EPIC-004 backlog 待開工(切 session 不殺 scrollback)。
 
 ---
 
@@ -226,6 +228,44 @@ DB URL `sqlite:piermux.db` + tauri identifier `dev.kirinchen.piermux` → tauri-
 **為什麼是 D-level decision:** SPEC §11 定義「Session」是 tmux session,加 shell 是擴詞彙不是改既有概念,但 SPEC 沒明列。CLAUDE.md「動 SPEC 描述的核心 UX 要先問」owner 已透過訊息確認(2026-05-02「Session 都要準備一個沒有 tmux,直接的 ssh,名稱你推薦」)。
 
 **SPEC 怎麼處理:** 不直接動 SPEC §11(待 M3 polish 整理時 owner 統一決),NOTES D-14 留 deviation 記錄。對齊 D-10 / D-11 / D-12 處理方式。
+
+---
+
+### 2026-05-13 — D-15 M2a Android cross-compile 設定落地
+
+**動機:** D-13 spike(2026-05-02)驗證純 Rust cross-compile 過,結論「裝 NDK 就解鎖」。Owner 今天裝 Android Studio + JDK 21 + NDK r27d,實際把 D-13 的 follow-up 路徑跑完。
+
+**裝了什麼:**
+- Android Studio Panda 4(內含 SDK + platform-tools + adb)
+- NDK r27d 內部版號 **27.3.13750724**(手動下載 zip 解壓到 `$LOCALAPPDATA\Android\Sdk\ndk\27.3.13750724\`,**not via SDK Manager**,因為 Panda 4 SDK Manager 那次沒勾)
+- JDK 21(`C:\Program Files\java\jdk-21_0_9`)— 機器上有 JDK 25,但 AGP 8.x 還沒支援 JDK 25,所以 `JAVA_HOME` 指 21,PATH 不動(其他 java 用法走 25)
+- CMake **沒裝** — `libsqlite3-sys` 走 `cc-rs` 不走 CMake,目前用不到。撞到再補
+
+**環境變數(都 User 層):**
+- `JAVA_HOME = C:\Program Files\java\jdk-21_0_9`
+- `ANDROID_HOME = C:\Users\kirin\AppData\Local\Android\Sdk`
+- `NDK_HOME = C:\Users\kirin\AppData\Local\Android\Sdk\ndk\27.3.13750724`
+
+**Rust targets:**
+```
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+```
+
+**`.cargo/config.toml`(本 commit 第一次出現):**
+全 4 個 target 都寫 linker → NDK r27d 的 `<TARGET>-clang.cmd`,API level 24(Tauri 2 default)。**寫死 owner 機器路徑** — Q1 owner 拍板「commit」(side project + 目前只有一個 dev,日後 CI 或他人接手再用 env override / patch)。
+
+**驗證:**
+- `cargo check --target aarch64-linux-android` finished in 1m 01s ✓
+- `libsqlite3-sys` D-13 卡關點解 ✓(NDK clang + `CC_aarch64_linux_android` env var)
+- `npm run tauri android init` ✓ produced `src-tauri/gen/android/` Gradle scaffold
+
+**新增 component(`src-tauri/gen/android/`):**
+Tauri Android Studio project,含 Gradle config(build.gradle.kts / settings.gradle / gradle.properties)+ `app/` 子目錄(AndroidManifest / Kotlin entry / resources)+ buildSrc。Tauri 自己 scaffold `.gitignore`,排掉 `build/`、`.gradle/`、`local.properties` 等機器特定東西。**Scaffold 本身可 commit。**
+
+**還沒做(下一步):**
+- 接 USB 實機跑 `npm run tauri android dev`(第一次跑 Gradle 會下載一堆 dependency,挺久)
+- 對齊 SPEC §8 M2a-M2e 開 EPIC-002(目前在 `task.md` Backlog 列為 placeholder)
+- D-4 留下的 Android keystore 私鑰 import 還沒實作(M2 後續)
 
 ---
 
