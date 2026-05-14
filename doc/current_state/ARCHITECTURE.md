@@ -33,14 +33,20 @@ owner: kirin
 
 ### Frontend — Android (`src/android/`)
 
-M2b/M2c(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture + send_message + JuiceSSH 風快捷鍵 bar。共用 hooks(useHostsList / useSessions / useCapture)+ lib。M2d attach 待補。
+M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_message + attach 雙向 + line buffer + modifier bar。共用 hooks(useHostsList / useSessions / useCapture)+ lib。
 - `AndroidApp.tsx` — `stack: Screen[]` 配 push/pop 做 navigation;`Screen` discriminated union(`host-list` | `host-form` | `session-list` | `session`)。沒裝 React Router
 - `useAndroidBack.ts` — hook 接 `getCurrentWindow().onCloseRequested`,Android-only,canGoBack=true 時 preventDefault + pop,否則放系統關 app。Tauri 2 Android hardware back 對映行為待實機驗
 - `HostListScreen.tsx` — 卡片式 host list,header 有 `⟳ All`(`useRefreshAll` = captureAll)+ `+ Host`;每 row 含 [✏] 進 edit form。tap row 進 SessionList
-- `AndroidHostFormScreen.tsx` — 全屏 host form,取代 desktop dialog 的 modal pattern,用原生 `<input>`/`<select>` 配 inputMode/autoCapitalize/autoCorrect=off。共用 useCreate/Update/TestConnection
+- `AndroidHostFormScreen.tsx` — 全屏 host form,取代 desktop dialog 的 modal pattern,用原生 `<input>`/`<select>` 配 inputMode/autoCapitalize/autoCorrect=off。共用 useCreate/Update/Delete/TestConnection。Edit mode 下方紅色「刪除這台 host」按鈕走 `window.confirm` + `useDeleteHost`
 - `SessionListScreen.tsx` — host 的 tmux session list,首行固定 ⚡ shell synthetic row。header `⟳` 同時 refetch sessions + captureHost(三層 refresh 中層)。tap → SessionScreen
-- `SessionScreen.tsx` — `mode: 'capture' | 'attach'` 切。`target.kind === 'shell'` 強制 attach(shell 無 capture)。**Capture mode** = xterm readonly(font 13、scrollback 5000)+ `captureSession` on mount + `capture-updated:<host>:<session>` listen + 右上 [🔄] per-session refresh + 下方 QuickKeyBar + 一行文字 input + Send 按鈕(走 send_message literal=true, send_enter=true)。**Attach mode** = M2d 純殼
-- `QuickKeyBar.tsx` — JuiceSSH 風單列橫向滾的快捷鍵 bar。每鍵 `{label, payload, literal}`,literal=false 走 tmux send-keys named-key(Tab/Escape/C-c/Up/...),literal=true 走字面(/, -, |, ~, `, < > [ ]). 不做 Ctrl sticky modifier(M2d 真 attach 才需要)
+- `SessionScreen.tsx` — `mode: 'capture' | 'attach'` 切。`target.kind === 'shell'` 強制 attach(shell 無 capture)
+  - **Capture mode**(M2c)— xterm readonly(font 13、scrollback 5000)+ `captureSession` on mount + `capture-updated:<host>:<session>` listen + 右上 [🔄] per-session refresh + `QuickKeyBar` + 一行文字 input + Send(send_message literal=true, send_enter=true)
+  - **Attach mode**(M2d)— `AttachView` 內嵌。`attachSession` / `attachShell`(shell target)on mount,xterm(font 12、scrollback 20000)接 `attach-output-<id>` event,**strip alt-screen toggle**(對齊 desktop 設計,把 tmux 重畫推進 normal-buffer scrollback)。`attach-closed-<id>` → onBack。`writeToSession` 在 ModifierBar 按鍵 / line input Send 時送 raw bytes。Cleanup detach + clear xterm
+  - Line buffer:`<textarea>` + Send button,IME `isComposing` 護欄;Shift+Enter 換行,純 Enter 整段送(buffer + `\r`)。**核心賣點**(SPEC §1.2 / §9.1 fallback 設計)
+  - Ctrl sticky:tap CTRL → line input keydown 攔截下個 a-zA-Z,wrap 成 Ctrl+letter raw byte(0x01..0x1a),CTRL 自動 deactivate
+  - 軟鍵盤收放:`window.visualViewport` resize event 也 refit(`ResizeObserver` 在 viewport 縮放有時不觸發)
+- `QuickKeyBar.tsx` — JuiceSSH 風橫滾 19 鍵 capture bar。每鍵 `{label, payload, literal}`,走 `send_message`(literal=false 走 tmux send-keys named-key:Tab/Escape/C-c/Up;literal=true 走字面 / - | ~ \` < > [ ])
+- `ModifierBar.tsx` — Attach mode 對應 bar,但 payload 是 raw bytes 走 `writeToSession`(不過 tmux)。CTRL 是 sticky toggle 給 line input 攔(見上)。21 個固定鍵 + CTRL,涵蓋 TAB/ESC/^C/^D/^L/^Z/^R/^U/↑↓←→/字面符號
 
 ### Backend (`src-tauri/src/`)
 
@@ -148,4 +154,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-14(M2b 收尾 + M2c capture + send_message + QuickKeyBar + 三層 refresh,EPIC-002 / ISSUE-010)*
+*Last updated: 2026-05-14(M2d attach 雙向 + line buffer + Ctrl sticky modifier bar + 刪除 host,EPIC-002 / ISSUE-010)*

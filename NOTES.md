@@ -5,12 +5,16 @@
 
 ## Current milestone
 
-**M2b 收尾 + M2c capture / send_message / QuickKeyBar(2026-05-14)** — EPIC-002 / ISSUE-010。三個 commit:
+**M2b / M2c / M2d / delete host follow-up(2026-05-14,一天打完)** — EPIC-002 / ISSUE-010。五個 commit:
 - `aa28a7f` M2b scaffold:platform routing + 四 screen + stack nav
 - `d98db95` M2b 收尾:`useAndroidBack` hook + AndroidHostFormScreen 全屏 form + HostList `+Host`/`✏` 接好
-- **本** M2c:`AttachScreen` → `SessionScreen`(mode toggle),capture mode 接 xterm.js readonly + `captureSession`/`capture-updated` event listener + per-session 🔄。`QuickKeyBar` 走 JuiceSSH 風單列橫滾 19 個鍵(TAB/ESC/^C/^D/^L/^Z/↑↓←→/字面 / - | ~ ` < > [ ])。`HostList` header 加 `⟳ All`(captureAll)、`SessionList` `⟳` 改成 refetch sessions + captureHost 雙重 refresh
-- Attach mode 仍純殼(M2d 真填)
-- `tsc --noEmit` + `npm run build` 過(1906 modules / 223KB gzip)
+- `45ed70c` M2c:`AttachScreen` → `SessionScreen`(mode toggle),capture 接 xterm readonly + `captureSession`/`capture-updated` listen + per-session 🔄。`QuickKeyBar` JuiceSSH 風 19 鍵(send_message)。三層 refresh 全接好
+- `9e5ba5b` Delete host:edit form 加紅色刪除按鈕(`useDeleteHost` + window.confirm 確認)
+- **本** M2d:`AttachView`(SessionScreen 內)接 `attachSession`/`attachShell` + `attach-output-<id>` event + strip-alt-screen 法 + `writeToSession` 出。Line buffer textarea Enter 整段送(IME `isComposing` 護欄)。`ModifierBar` 22 鍵 raw bytes(`writeToSession`),**CTRL sticky toggle** 在 line input keydown 攔下個 a-zA-Z,wrap 成 0x01..0x1a Ctrl+letter raw byte。軟鍵盤收放走 `visualViewport.resize` event 補 fit
+
+ISSUE-010 acceptance 大部分都接好;**還沒驗的**:實機跑、Tauri 2 Android hardware back 是否轉發到 onCloseRequested、Android Gboard 中文 IME × line buffer 行為(SPEC §1.2 colony 失敗場景的核心驗收)。
+
+`tsc --noEmit` + `npm run build` 過(1907 modules / 225KB gzip)。
 
 **M2a 完整 ✓(2026-05-13)** — NDK r27d (27.3.13750724) + cross-compile + 首次實機 boot(Galaxy `R5CW60V57KH`)。詳 D-15。
 
