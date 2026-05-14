@@ -164,20 +164,24 @@ function CaptureView({
       term.write(r.content);
     };
 
-    setRefreshing(true);
-    api
-      .captureSession(hostId, sessionName)
-      .then(writeResult)
-      .catch((err) => {
-        const term = xtermRef.current;
-        if (term) {
-          term.clear();
-          term.write(
-            `\r\n\x1b[31m[piermux] capture failed: ${String(err)}\x1b[0m\r\n`,
-          );
-        }
-      })
-      .finally(() => setRefreshing(false));
+    const triggerCapture = () => {
+      setRefreshing(true);
+      api
+        .captureSession(hostId, sessionName)
+        .then(writeResult)
+        .catch((err) => {
+          const term = xtermRef.current;
+          if (term) {
+            term.clear();
+            term.write(
+              `\r\n\x1b[31m[piermux] capture failed: ${String(err)}\x1b[0m\r\n`,
+            );
+          }
+        })
+        .finally(() => setRefreshing(false));
+    };
+
+    triggerCapture();
 
     let unlisten: UnlistenFn | undefined;
     const eventName = `capture-updated:${hostId}:${sessionName}`;
@@ -187,8 +191,15 @@ function CaptureView({
       })
       .catch((err) => console.warn("[SessionScreen] listen failed:", err));
 
+    // M2e — 回前景時自動重抓,避免看到 stale capture
+    const onVisible = () => {
+      if (document.visibilityState === "visible") triggerCapture();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       unlisten?.();
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [hostId, sessionName]);
 

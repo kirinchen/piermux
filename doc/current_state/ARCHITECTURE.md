@@ -63,7 +63,9 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 
 ### Android scaffold (`src-tauri/gen/android/`)
 
-M2a 起步(2026-05-13,D-15)用 `npm run tauri android init` 生的 Android Studio project,含 Gradle 配置(`build.gradle.kts` / `settings.gradle` / `gradle.properties` / `gradlew(.bat)`)+ `app/`(AndroidManifest / Kotlin entry / resources)+ `buildSrc/`。Tauri 自己 scaffold 一份 `.gitignore` 排掉 build artifacts。實際 Kotlin/Java code 還沒寫(M2b 起才有 piermux-specific frontend / IPC 改動)。
+M2a(2026-05-13,D-15)用 `npm run tauri android init` 生的 Android Studio project,含 Gradle 配置(`build.gradle.kts` / `settings.gradle` / `gradle.properties` / `gradlew(.bat)`)+ `app/`(AndroidManifest / Kotlin entry / resources)+ `buildSrc/`。Tauri 自己 scaffold 一份 `.gitignore` 排掉 build artifacts + `key.properties`。
+
+M2e(2026-05-14)`app/build.gradle.kts` 加 release signing:讀 `app/key.properties`(gitignored,owner 自己填 storeFile/storePassword/keyAlias/keyPassword)→ 建 `signingConfigs.release` → release buildType 用。`key.properties.example` 提供 template + 一次性 keytool 指令。缺檔不會擋 debug build,但 release build 會跑出 unsigned APK 裝不上實機。
 
 ### Build infrastructure (`.cargo/config.toml`)
 
@@ -154,4 +156,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-14(M2d attach 雙向 + line buffer + Ctrl sticky modifier bar + 刪除 host,EPIC-002 / ISSUE-010)*
+*Last updated: 2026-05-14(M2e release signing config + 回前景 capture auto-refresh,EPIC-002 / ISSUE-010)*

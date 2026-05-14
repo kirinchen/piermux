@@ -5,14 +5,19 @@
 
 ## Current milestone
 
-**M2b / M2c / M2d / delete host follow-up(2026-05-14,一天打完)** — EPIC-002 / ISSUE-010。五個 commit:
+**M2b → M2e 主線打完(2026-05-14,一天)** — EPIC-002 / ISSUE-010。六個 commit:
 - `aa28a7f` M2b scaffold:platform routing + 四 screen + stack nav
-- `d98db95` M2b 收尾:`useAndroidBack` hook + AndroidHostFormScreen 全屏 form + HostList `+Host`/`✏` 接好
-- `45ed70c` M2c:`AttachScreen` → `SessionScreen`(mode toggle),capture 接 xterm readonly + `captureSession`/`capture-updated` listen + per-session 🔄。`QuickKeyBar` JuiceSSH 風 19 鍵(send_message)。三層 refresh 全接好
-- `9e5ba5b` Delete host:edit form 加紅色刪除按鈕(`useDeleteHost` + window.confirm 確認)
-- **本** M2d:`AttachView`(SessionScreen 內)接 `attachSession`/`attachShell` + `attach-output-<id>` event + strip-alt-screen 法 + `writeToSession` 出。Line buffer textarea Enter 整段送(IME `isComposing` 護欄)。`ModifierBar` 22 鍵 raw bytes(`writeToSession`),**CTRL sticky toggle** 在 line input keydown 攔下個 a-zA-Z,wrap 成 0x01..0x1a Ctrl+letter raw byte。軟鍵盤收放走 `visualViewport.resize` event 補 fit
+- `d98db95` M2b 收尾:`useAndroidBack` hook + AndroidHostFormScreen 全屏 form
+- `45ed70c` M2c:SessionScreen capture mode + QuickKeyBar 19 鍵 + 三層 refresh
+- `9e5ba5b` Delete host(M2b/c follow-up)
+- `5eeabc6` M2d:AttachView 雙向 PTY + line buffer + ModifierBar 22 鍵 + CTRL sticky
+- **本** M2e:`app/build.gradle.kts` release signing + `key.properties.example`、capture 回前景 auto-refresh(`visibilitychange`),詳 D-16
 
-ISSUE-010 acceptance 大部分都接好;**還沒驗的**:實機跑、Tauri 2 Android hardware back 是否轉發到 onCloseRequested、Android Gboard 中文 IME × line buffer 行為(SPEC §1.2 colony 失敗場景的核心驗收)。
+**ISSUE-010 sticky acceptance(尚未實機驗)**
+- SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
+- 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
+
+**D-4 SSH 私鑰 import** 不是 M2e 範圍,留 follow-up(目前 workaround:Android 端 host form 走 `window.prompt` 貼路徑)。
 
 `tsc --noEmit` + `npm run build` 過(1907 modules / 225KB gzip)。
 
@@ -277,6 +282,28 @@ Tauri Android Studio project,含 Gradle config(build.gradle.kts / settings.gradl
 - 接 USB 實機跑 `npm run tauri android dev`(第一次跑 Gradle 會下載一堆 dependency,挺久)
 - 對齊 SPEC §8 M2a-M2e 開 EPIC-002(目前在 `task.md` Backlog 列為 placeholder)
 - D-4 留下的 Android keystore 私鑰 import 還沒實作(M2 後續)
+
+### 2026-05-14 — D-16 M2e release signing config + D-4 範圍釐清
+
+**M2e 做了什麼:**
+- `gen/android/app/build.gradle.kts` 加 release `signingConfigs`:讀 `app/key.properties`(gitignored),沒檔就跳過 — release build 會跑出 unsigned APK 裝不上,debug build 不受影響
+- `gen/android/app/key.properties.example` 提供 template + 一次性 keytool 指令(`keytool -genkey -v -keystore piermux-release.jks -keyalg RSA -keysize 2048 -validity 36500 -alias piermux`)
+- Owner 跑 keytool + 填 key.properties + `npm run tauri android build --release` 就 ship signed APK。**Backup keystore!** 弄丟以後沒辦法 update 同一個 app(Android 對齊 keystore SHA-256 識別)
+
+**回前景 capture auto-refresh:**
+- `SessionScreen.tsx` CaptureView 加 `document.visibilitychange` listener,回前景觸發 `captureSession` 重抓。避免看到 stale screen
+- Attach mode 不自動 re-attach(那是 EPIC-004 B-Snapshot / B-Live 的事,owner 拍板「之後再做」)。如果背景期間 server SSH timeout 觸發 `attach-closed`,FE 已經會 popup + onBack
+
+**D-4 範圍釐清(免得跟 M2e signing 混):**
+- D-4 = **SSH 私鑰**在 Android 怎麼存(file picker / Android Keystore / 寫進 sqlite 加密欄等)
+- M2e signing = **app release** signing key(Android dev 通用流程,跟 piermux 無關)
+- 兩個是不同的「key」。先前 ISSUE-010 M2e acceptance 文字把兩件事混在一起說「順帶解 D-4」,實際上 D-4 還沒解,留作 M2e 後 follow-up
+- 暫時 workaround:Android 端 host form 的「私鑰絕對路徑」欄走 `window.prompt`,owner 手動把私鑰丟進 Android 檔案系統(`/storage/emulated/0/...`)。M3 polish 再做正式 file picker(`@tauri-apps/plugin-fs` 或 `@tauri-apps/plugin-dialog`)
+
+**SPEC §8 M2 完成標準的真實驗收(尚未跑):**
+> Android 真機加 host → 看到 tree → attach 一個 Claude Code session → 用 line buffer 打中文訊息按 Enter 送出 → Claude 端收到完整訊息
+
+實機 + 真實 Claude Code session + 中文 IME(Gboard 注音 / 拼音 / 倉頡)三項齊備時驗。**沒驗以前 M2 不算 done。**
 
 ---
 

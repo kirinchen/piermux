@@ -13,6 +13,20 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// M2e — release signing。`key.properties` 是 gitignored,owner 自己填:
+//   storeFile=/path/to/piermux-release.jks
+//   storePassword=...
+//   keyAlias=piermux
+//   keyPassword=...
+// 沒設定就只能 build debug,release 會被 Gradle 抓出 signingConfig 缺失。
+val keyPropertiesFile = file("key.properties")
+val keyProperties = Properties().apply {
+    if (keyPropertiesFile.exists()) {
+        keyPropertiesFile.inputStream().use { load(it) }
+    }
+}
+val hasReleaseSigning = keyPropertiesFile.exists()
+
 android {
     compileSdk = 36
     namespace = "dev.kirinchen.piermux"
@@ -23,6 +37,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(keyProperties.getProperty("storeFile"))
+                storePassword = keyProperties.getProperty("storePassword")
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -43,6 +67,9 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     kotlinOptions {

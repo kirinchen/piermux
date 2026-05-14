@@ -1,0 +1,16 @@
+# piermux Android release signing — example
+#
+# Copy 這份成 `key.properties`(同層,已被 .gitignore 排掉),填好 4 個欄位。
+# 缺檔 → `tauri android build --release` 會跑出 unsigned APK(Android 拒裝)。
+#
+# 一次性產 keystore(JDK 21 keytool):
+#   keytool -genkey -v -keystore piermux-release.jks ^
+#     -keyalg RSA -keysize 2048 -validity 36500 -alias piermux
+#
+# 建議 keystore 放 repo 外(例如 ~/Documents/piermux/piermux-release.jks),
+# 用絕對路徑寫進 storeFile。Backup 起來 — 弄丟以後沒辦法 update 同一個 app。
+
+storeFile=C:\\Users\\kirin\\Documents\\piermux\\piermux-release.jks
+storePassword=REPLACE_ME
+keyAlias=piermux
+keyPassword=REPLACE_ME
