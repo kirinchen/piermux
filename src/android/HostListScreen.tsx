@@ -3,9 +3,11 @@ import type { Host } from "@/lib/types";
 
 type Props = {
   onSelectHost: (hostId: string) => void;
+  onAddHost: () => void;
+  onEditHost: (host: Host) => void;
 };
 
-export function HostListScreen({ onSelectHost }: Props) {
+export function HostListScreen({ onSelectHost, onAddHost, onEditHost }: Props) {
   const { data: hosts, isLoading, error } = useHostsList();
 
   return (
@@ -14,8 +16,8 @@ export function HostListScreen({ onSelectHost }: Props) {
         <h1 className="text-lg font-semibold">piermux</h1>
         <button
           type="button"
-          className="rounded-md bg-zinc-800 px-3 py-2 text-sm font-medium active:bg-zinc-700"
-          disabled
+          onClick={onAddHost}
+          className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white active:bg-blue-700"
         >
           + Host
         </button>
@@ -30,14 +32,19 @@ export function HostListScreen({ onSelectHost }: Props) {
             {(error as Error).message}
           </p>
         )}
-        {hosts && hosts.length === 0 && (
+        {hosts && hosts.length === 0 && !isLoading && (
           <p className="px-2 py-4 text-sm text-zinc-400">
-            還沒加 host。Desktop 上加完會同步到這裡。
+            還沒加 host。點右上「+ Host」開始。
           </p>
         )}
         <ul className="space-y-2">
           {hosts?.map((h) => (
-            <HostCard key={h.id} host={h} onSelect={() => onSelectHost(h.id)} />
+            <HostCard
+              key={h.id}
+              host={h}
+              onSelect={() => onSelectHost(h.id)}
+              onEdit={() => onEditHost(h)}
+            />
           ))}
         </ul>
       </main>
@@ -45,13 +52,21 @@ export function HostListScreen({ onSelectHost }: Props) {
   );
 }
 
-function HostCard({ host, onSelect }: { host: Host; onSelect: () => void }) {
+function HostCard({
+  host,
+  onSelect,
+  onEdit,
+}: {
+  host: Host;
+  onSelect: () => void;
+  onEdit: () => void;
+}) {
   return (
-    <li>
+    <li className="flex items-stretch gap-2">
       <button
         type="button"
         onClick={onSelect}
-        className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
+        className="flex flex-1 items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
       >
         <span className="flex-1 min-w-0">
           <span className="block text-base font-medium">
@@ -62,6 +77,14 @@ function HostCard({ host, onSelect }: { host: Host; onSelect: () => void }) {
           </span>
         </span>
         <span className="text-zinc-500">›</span>
+      </button>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 active:bg-zinc-800"
+        aria-label={`編輯 ${host.display_name}`}
+      >
+        ✏
       </button>
     </li>
   );

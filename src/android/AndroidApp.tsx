@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { HostListScreen } from "./HostListScreen";
 import { SessionListScreen } from "./SessionListScreen";
 import { AttachScreen } from "./AttachScreen";
+import { AndroidHostFormScreen } from "./AndroidHostFormScreen";
+import { useAndroidBack } from "./useAndroidBack";
+import type { Host } from "@/lib/types";
 
 export type AndroidTarget =
   | { kind: "tmux"; session: string }
@@ -9,35 +12,57 @@ export type AndroidTarget =
 
 type Screen =
   | { kind: "host-list" }
+  | { kind: "host-form"; editing: Host | null }
   | { kind: "session-list"; hostId: string }
   | { kind: "attach"; hostId: string; target: AndroidTarget };
 
 export function AndroidApp() {
-  const [screen, setScreen] = useState<Screen>({ kind: "host-list" });
+  const [stack, setStack] = useState<Screen[]>([{ kind: "host-list" }]);
+  const current = stack[stack.length - 1];
+  const canGoBack = stack.length > 1;
 
-  const goHostList = () => setScreen({ kind: "host-list" });
-  const goSessionList = (hostId: string) =>
-    setScreen({ kind: "session-list", hostId });
-  const goAttach = (hostId: string, target: AndroidTarget) =>
-    setScreen({ kind: "attach", hostId, target });
+  const push = (s: Screen) => setStack((prev) => [...prev, s]);
+  const pop = useCallback(
+    () =>
+      setStack((prev) =>
+        prev.length > 1 ? prev.slice(0, -1) : prev,
+      ),
+    [],
+  );
 
-  switch (screen.kind) {
+  useAndroidBack(canGoBack, pop);
+
+  switch (current.kind) {
     case "host-list":
-      return <HostListScreen onSelectHost={goSessionList} />;
-    case "session-list":
       return (
-        <SessionListScreen
-          hostId={screen.hostId}
-          onBack={goHostList}
-          onSelectTarget={(target) => goAttach(screen.hostId, target)}
+        <HostListScreen
+          onSelectHost={(hostId) => push({ kind: "session-list", hostId })}
+          onAddHost={() => push({ kind: "host-form", editing: null })}
+          onEditHost={(host) => push({ kind: "host-form", editing: host })}
         />
       );
+    case "host-form":
+      return (
+        <AndroidHostFormScreen editing={current.editing} onClose={pop} />
+      );
+    case "session-list": {
+      const hostId = current.hostId;
+      return (
+        <SessionListScreen
+          hostId={hostId}
+          onBack={pop}
+          onSelectTarget={(target) =>
+            push({ kind: "attach", hostId, target })
+          }
+        />
+      );
+    }
     case "attach":
       return (
         <AttachScreen
-          hostId={screen.hostId}
-          target={screen.target}
-          onBack={() => goSessionList(screen.hostId)}
+          hostId={current.hostId}
+          target={current.target}
+          onBack={pop}
         />
       );
   }
