@@ -1,4 +1,6 @@
+import { toast } from "sonner";
 import { useHostsList } from "@/hooks/useHosts";
+import { useRefreshAll } from "@/hooks/useCapture";
 import type { Host } from "@/lib/types";
 
 type Props = {
@@ -9,18 +11,38 @@ type Props = {
 
 export function HostListScreen({ onSelectHost, onAddHost, onEditHost }: Props) {
   const { data: hosts, isLoading, error } = useHostsList();
+  const refreshAll = useRefreshAll();
+
+  const handleRefreshAll = async () => {
+    try {
+      const results = await refreshAll.mutateAsync();
+      toast.success(`已 refresh ${results.length} 個 session`);
+    } catch (err) {
+      toast.error(`Refresh All 失敗:${String(err)}`);
+    }
+  };
 
   return (
     <div className="flex h-dvh flex-col bg-zinc-950 text-zinc-100">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+      <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
         <h1 className="text-lg font-semibold">piermux</h1>
-        <button
-          type="button"
-          onClick={onAddHost}
-          className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white active:bg-blue-700"
-        >
-          + Host
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleRefreshAll}
+            disabled={refreshAll.isPending || !hosts?.length}
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm active:bg-zinc-800 disabled:opacity-50"
+          >
+            {refreshAll.isPending ? "…" : "⟳ All"}
+          </button>
+          <button
+            type="button"
+            onClick={onAddHost}
+            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white active:bg-blue-700"
+          >
+            + Host
+          </button>
+        </div>
       </header>
 
       <main className="flex-1 overflow-y-auto p-3">

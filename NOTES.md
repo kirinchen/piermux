@@ -5,7 +5,12 @@
 
 ## Current milestone
 
-**M2b 起步:`src/android/` scaffold + platform routing(2026-05-14)** — EPIC-002 / ISSUE-010 開工第一刀。`App.tsx` 加 `isAndroid()` 分流(`navigator.userAgent`),`src/android/AndroidApp.tsx` 用 discriminated union 做 view-state stack navigation(HostList → SessionList → Attach 三層)。三個 screen 殼接共用 hooks(`useHostsList` / `useSessions`),`AttachScreen` 純殼等 M2d。Android 系統 back 鍵還沒 wire。`tsc --noEmit` + `npm run build` 過(1900 modules / 218KB gzip)。
+**M2b 收尾 + M2c capture / send_message / QuickKeyBar(2026-05-14)** — EPIC-002 / ISSUE-010。三個 commit:
+- `aa28a7f` M2b scaffold:platform routing + 四 screen + stack nav
+- `d98db95` M2b 收尾:`useAndroidBack` hook + AndroidHostFormScreen 全屏 form + HostList `+Host`/`✏` 接好
+- **本** M2c:`AttachScreen` → `SessionScreen`(mode toggle),capture mode 接 xterm.js readonly + `captureSession`/`capture-updated` event listener + per-session 🔄。`QuickKeyBar` 走 JuiceSSH 風單列橫滾 19 個鍵(TAB/ESC/^C/^D/^L/^Z/↑↓←→/字面 / - | ~ ` < > [ ])。`HostList` header 加 `⟳ All`(captureAll)、`SessionList` `⟳` 改成 refetch sessions + captureHost 雙重 refresh
+- Attach mode 仍純殼(M2d 真填)
+- `tsc --noEmit` + `npm run build` 過(1906 modules / 223KB gzip)
 
 **M2a 完整 ✓(2026-05-13)** — NDK r27d (27.3.13750724) + cross-compile + 首次實機 boot(Galaxy `R5CW60V57KH`)。詳 D-15。
 

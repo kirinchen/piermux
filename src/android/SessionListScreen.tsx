@@ -1,5 +1,7 @@
+import { toast } from "sonner";
 import { useSessions } from "@/hooks/useSessions";
 import { useHostsList } from "@/hooks/useHosts";
+import { useRefreshHost } from "@/hooks/useCapture";
 import type { Session } from "@/lib/types";
 import type { AndroidTarget } from "./AndroidApp";
 
@@ -14,6 +16,15 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
   const host = hosts?.find((h) => h.id === hostId);
   const { data: sessions, isLoading, error, refetch, isFetching } =
     useSessions(hostId);
+  const refreshHost = useRefreshHost();
+
+  const handleRefresh = async () => {
+    try {
+      await Promise.all([refetch(), refreshHost.mutateAsync(hostId)]);
+    } catch (err) {
+      toast.error(`refresh 失敗:${String(err)}`);
+    }
+  };
 
   return (
     <div className="flex h-dvh flex-col bg-zinc-950 text-zinc-100">
@@ -37,11 +48,11 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
         </div>
         <button
           type="button"
-          onClick={() => refetch()}
-          disabled={isFetching}
+          onClick={handleRefresh}
+          disabled={isFetching || refreshHost.isPending}
           className="rounded-md bg-zinc-800 px-3 py-2 text-sm active:bg-zinc-700 disabled:opacity-50"
         >
-          {isFetching ? "…" : "⟳"}
+          {isFetching || refreshHost.isPending ? "…" : "⟳"}
         </button>
       </header>
 

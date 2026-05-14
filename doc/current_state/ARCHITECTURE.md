@@ -33,11 +33,14 @@ owner: kirin
 
 ### Frontend — Android (`src/android/`)
 
-M2b 起步(2026-05-14,EPIC-002 / ISSUE-010)。第一刀只有 stack navigation 殼 + 共用 hooks/lib,沒重做業務邏輯。
-- `AndroidApp.tsx` — `Screen` discriminated union(`host-list` | `session-list` | `attach`)做 view-state stack navigation。沒裝 React Router。Android 系統 back 鍵還沒 wire(M2b 後續或 M2d 補)
-- `HostListScreen.tsx` — 用 `useHostsList`(共用 hook)顯示卡片式 host list,tap row 進 SessionList。`+ Host` 按鈕暫 disabled(create dialog 是 M2b 後續)
-- `SessionListScreen.tsx` — 用 `useSessions`(共用 hook),首行固定 ⚡ shell synthetic row,後面是 tmux sessions。header 含 back + host 資訊 + `⟳` refresh
-- `AttachScreen.tsx` — **M2b 純殼**,實際 attach + xterm + line buffer + modifier bar 是 M2d。`target: AndroidTarget = {kind:'tmux',session}|{kind:'shell'}` 從 SessionList 帶進來
+M2b/M2c(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture + send_message + JuiceSSH 風快捷鍵 bar。共用 hooks(useHostsList / useSessions / useCapture)+ lib。M2d attach 待補。
+- `AndroidApp.tsx` — `stack: Screen[]` 配 push/pop 做 navigation;`Screen` discriminated union(`host-list` | `host-form` | `session-list` | `session`)。沒裝 React Router
+- `useAndroidBack.ts` — hook 接 `getCurrentWindow().onCloseRequested`,Android-only,canGoBack=true 時 preventDefault + pop,否則放系統關 app。Tauri 2 Android hardware back 對映行為待實機驗
+- `HostListScreen.tsx` — 卡片式 host list,header 有 `⟳ All`(`useRefreshAll` = captureAll)+ `+ Host`;每 row 含 [✏] 進 edit form。tap row 進 SessionList
+- `AndroidHostFormScreen.tsx` — 全屏 host form,取代 desktop dialog 的 modal pattern,用原生 `<input>`/`<select>` 配 inputMode/autoCapitalize/autoCorrect=off。共用 useCreate/Update/TestConnection
+- `SessionListScreen.tsx` — host 的 tmux session list,首行固定 ⚡ shell synthetic row。header `⟳` 同時 refetch sessions + captureHost(三層 refresh 中層)。tap → SessionScreen
+- `SessionScreen.tsx` — `mode: 'capture' | 'attach'` 切。`target.kind === 'shell'` 強制 attach(shell 無 capture)。**Capture mode** = xterm readonly(font 13、scrollback 5000)+ `captureSession` on mount + `capture-updated:<host>:<session>` listen + 右上 [🔄] per-session refresh + 下方 QuickKeyBar + 一行文字 input + Send 按鈕(走 send_message literal=true, send_enter=true)。**Attach mode** = M2d 純殼
+- `QuickKeyBar.tsx` — JuiceSSH 風單列橫向滾的快捷鍵 bar。每鍵 `{label, payload, literal}`,literal=false 走 tmux send-keys named-key(Tab/Escape/C-c/Up/...),literal=true 走字面(/, -, |, ~, `, < > [ ]). 不做 Ctrl sticky modifier(M2d 真 attach 才需要)
 
 ### Backend (`src-tauri/src/`)
 
@@ -145,4 +148,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-14(M2b src/android scaffold + platform routing,EPIC-002 / ISSUE-010 開工)*
+*Last updated: 2026-05-14(M2b 收尾 + M2c capture + send_message + QuickKeyBar + 三層 refresh,EPIC-002 / ISSUE-010)*

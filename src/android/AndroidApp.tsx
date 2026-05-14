@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { HostListScreen } from "./HostListScreen";
 import { SessionListScreen } from "./SessionListScreen";
-import { AttachScreen } from "./AttachScreen";
+import { SessionScreen } from "./SessionScreen";
 import { AndroidHostFormScreen } from "./AndroidHostFormScreen";
 import { useAndroidBack } from "./useAndroidBack";
 import type { Host } from "@/lib/types";
@@ -14,7 +14,7 @@ type Screen =
   | { kind: "host-list" }
   | { kind: "host-form"; editing: Host | null }
   | { kind: "session-list"; hostId: string }
-  | { kind: "attach"; hostId: string; target: AndroidTarget };
+  | { kind: "session"; hostId: string; target: AndroidTarget };
 
 export function AndroidApp() {
   const [stack, setStack] = useState<Screen[]>([{ kind: "host-list" }]);
@@ -52,14 +52,14 @@ export function AndroidApp() {
           hostId={hostId}
           onBack={pop}
           onSelectTarget={(target) =>
-            push({ kind: "attach", hostId, target })
+            push({ kind: "session", hostId, target })
           }
         />
       );
     }
-    case "attach":
+    case "session":
       return (
-        <AttachScreen
+        <SessionScreen
           hostId={current.hostId}
           target={current.target}
           onBack={pop}
