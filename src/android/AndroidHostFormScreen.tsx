@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { useCreateHost, useUpdateHost, useTestConnection } from "@/hooks/useHosts";
+import {
+  useCreateHost,
+  useDeleteHost,
+  useUpdateHost,
+  useTestConnection,
+} from "@/hooks/useHosts";
 import { emptyHostForm, hostToForm } from "@/lib/types";
 import type { AuthType, Host, HostForm } from "@/lib/types";
 import { api } from "@/lib/tauri";
@@ -18,6 +23,7 @@ export function AndroidHostFormScreen({ editing, onClose }: Props) {
   );
   const create = useCreateHost();
   const update = useUpdateHost();
+  const del = useDeleteHost();
   const test = useTestConnection();
 
   const set =
@@ -48,6 +54,21 @@ export function AndroidHostFormScreen({ editing, onClose }: Props) {
       toast.success("連線成功");
     } catch (err) {
       toast.error(`連線失敗:${String(err)}`);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editing) return;
+    const ok = window.confirm(
+      `確定刪除「${editing.display_name}」?\n密碼也會從 keyring 移掉。`,
+    );
+    if (!ok) return;
+    try {
+      await del.mutateAsync(editing.id);
+      toast.success(`已刪除 ${editing.display_name}`);
+      onClose();
+    } catch (err) {
+      toast.error(`刪除失敗:${String(err)}`);
     }
   };
 
@@ -204,6 +225,19 @@ export function AndroidHostFormScreen({ editing, onClose }: Props) {
             {test.isPending ? "測試中…" : "測試連線"}
           </button>
         </div>
+
+        {isEdit && (
+          <div className="pt-4">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={del.isPending || submitting}
+              className="w-full rounded-md border border-red-900/50 bg-red-950/40 px-4 py-3 text-sm font-medium text-red-300 active:bg-red-900/40 disabled:opacity-50"
+            >
+              {del.isPending ? "刪除中…" : "刪除這台 host"}
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );
