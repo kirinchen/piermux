@@ -5,7 +5,9 @@
 
 ## Current milestone
 
-**M2a 起步:Android cross-compile 設定完成(2026-05-13)** — D-13 spike 預測的「裝完 NDK 就過」驗證成功。NDK r27d (27.3.13750724) 安裝 + `.cargo/config.toml` linker 設好 + `npm run tauri android init` 跑完。`cargo check --target aarch64-linux-android` 全鏈路(makiko / sqlx-sqlite / libsqlite3-sys / tauri)1 分 1 秒過。詳 D-15。
+**M2b 起步:`src/android/` scaffold + platform routing(2026-05-14)** — EPIC-002 / ISSUE-010 開工第一刀。`App.tsx` 加 `isAndroid()` 分流(`navigator.userAgent`),`src/android/AndroidApp.tsx` 用 discriminated union 做 view-state stack navigation(HostList → SessionList → Attach 三層)。三個 screen 殼接共用 hooks(`useHostsList` / `useSessions`),`AttachScreen` 純殼等 M2d。Android 系統 back 鍵還沒 wire。`tsc --noEmit` + `npm run build` 過(1900 modules / 218KB gzip)。
+
+**M2a 完整 ✓(2026-05-13)** — NDK r27d (27.3.13750724) + cross-compile + 首次實機 boot(Galaxy `R5CW60V57KH`)。詳 D-15。
 
 **M1 desktop preview** 已 ship v0.1.0(2026-05-01)。EPIC-004 backlog 待開工(切 session 不殺 scrollback)。
 

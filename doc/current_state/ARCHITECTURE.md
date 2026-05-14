@@ -15,7 +15,8 @@ owner: kirin
 
 ### Frontend (`src/`)
 
-- `App.tsx` — root,routes to `desktop/HostsView` (Android in `src/android/` 還沒寫,M2)
+- `App.tsx` — root,platform routing:`isAndroid()`(UA 偵測)→ `<AndroidApp />`,否則 `<HostsView />`(desktop)
+- `lib/platform.ts` — `detectPlatform()` / `isAndroid()` 用 `navigator.userAgent` 判 Android WebView。M2b 起步用,需要更細粒度(iOS / version detection)再升 `@tauri-apps/plugin-os`
 - `desktop/HostsView.tsx` — top-level layout(header + collapsible sidebar + main panel + dialog)。`Selection` 4-variant discriminated union 路由 main panel
 - `desktop/HostTree.tsx` — 左側 host/session tree。每 host row 含 `[checkbox]` (multi-select) + chevron + status icon + name + hover [🔄 / ✏ / 🗑]。展開後第一個 child 是 ⚡ shell synthetic row,然後是 tmux sessions
 - `desktop/HostCaptureGrid.tsx` — 單 host capture grid view(host name click 進)
@@ -29,6 +30,14 @@ owner: kirin
 - `hooks/useHosts.ts` / `useSessions.ts` / `useCapture.ts` — TanStack Query mutations + queries
 - `lib/tauri.ts` — Tauri invoke wrapper(所有 backend command 集中在這個 `api` object)
 - `lib/types.ts` — TS mirror 的 backend types(Host / Session / CaptureResult / HostConnectionStatus / HostForm)
+
+### Frontend — Android (`src/android/`)
+
+M2b 起步(2026-05-14,EPIC-002 / ISSUE-010)。第一刀只有 stack navigation 殼 + 共用 hooks/lib,沒重做業務邏輯。
+- `AndroidApp.tsx` — `Screen` discriminated union(`host-list` | `session-list` | `attach`)做 view-state stack navigation。沒裝 React Router。Android 系統 back 鍵還沒 wire(M2b 後續或 M2d 補)
+- `HostListScreen.tsx` — 用 `useHostsList`(共用 hook)顯示卡片式 host list,tap row 進 SessionList。`+ Host` 按鈕暫 disabled(create dialog 是 M2b 後續)
+- `SessionListScreen.tsx` — 用 `useSessions`(共用 hook),首行固定 ⚡ shell synthetic row,後面是 tmux sessions。header 含 back + host 資訊 + `⟳` refresh
+- `AttachScreen.tsx` — **M2b 純殼**,實際 attach + xterm + line buffer + modifier bar 是 M2d。`target: AndroidTarget = {kind:'tmux',session}|{kind:'shell'}` 從 SessionList 帶進來
 
 ### Backend (`src-tauri/src/`)
 
@@ -129,11 +138,11 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 - **Decision log:** [`../../NOTES.md`](../../NOTES.md) D-1..D-15(SPEC 模糊處 / SPEC deviation / spike 結果)
 - **SPEC:** [`../SPEC.md`](../SPEC.md) — 產品意圖
-- **Sprint / Issues:** [`../Sprint/SPRINT-2026-W18.md`](../Sprint/SPRINT-2026-W18.md) + [`../Issue/`](../Issue/) ISSUE-001..008
+- **Sprint / Issues:** [`../Sprint/SPRINT-2026-W18.md`](../Sprint/SPRINT-2026-W18.md) + [`../Issue/`](../Issue/) ISSUE-001..010,Epics [EPIC-001](../Epic/EPIC-001.md) / [EPIC-002](../Epic/EPIC-002.md) / [EPIC-004](../Epic/EPIC-004.md)
 - **Tasks:** [`../task.md`](../task.md)
 
 ---
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-13(M2a Android scaffold + cross-compile setup,D-15)*
+*Last updated: 2026-05-14(M2b src/android scaffold + platform routing,EPIC-002 / ISSUE-010 開工)*
