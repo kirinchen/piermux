@@ -1,154 +1,158 @@
 # piermux
 
-> **跨多機 tmux session 的 GUI 快速 attach 工具,Desktop + Android。**
-> 專注於「找 session 快」+「輸入體驗好」。
+> **English(this file)· [繁體中文](README.zh-TW.md)**
+
+> **GUI for managing tmux sessions across multiple SSH hosts. Desktop + Android.**
+> Focused on **fast session discovery** + **good typing experience** (especially for AI-agent prompts).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-M2%20code%20complete%2C%20pre--release-orange.svg)](#目前狀態)
+[![Status](https://img.shields.io/badge/status-M2%20code%20complete%2C%20pre--release-orange.svg)](#status)
 
 ---
 
-## 為什麼做這個?
+## Why this exists
 
-每天要 attach 多台機器上的多個 tmux session,每次都要 `ssh` → `tmux ls` → `tmux attach -t <長名字>` 太煩。現有工具沒一個同時做到這三件事:
+Every day I attach to multiple tmux sessions across multiple machines. `ssh` → `tmux ls` → `tmux attach -t <long-name>` is a tax that adds up. No existing tool covers all three of these at once:
 
-| 工具 | 它好的地方 | 缺的 |
+| Tool | What it's good at | What's missing |
 |---|---|---|
-| **Xshell** | desktop SSH 龍頭,輸入體驗好 | 沒有跨多 host tree view、沒有 Android、不知道 tmux session list |
-| **JuiceSSH** | Android SSH 龍頭,modifier bar 完整 | 沒有 line buffer、不知道 tmux session list、沒有跨 host 統合 view |
-| **colony** | Android 上有 tmux session 觀念 | tmux 快捷導向(無通用鍵)、字元 stream(會搞壞 AI 對話)、單 host |
+| **Xshell** | Desktop SSH leader, great typing | No cross-host tree view, no Android, doesn't know about tmux sessions |
+| **JuiceSSH** | Android SSH leader, complete modifier bar | No line buffer, doesn't know about tmux sessions, no cross-host unified view |
+| **colony** | Android-side tmux awareness | Tmux-shortcut driven (no general-purpose keys), char-streaming (breaks AI conversations), single host |
 
-**piermux 的賣點:** 跨 host tree view + line buffer 的好輸入體驗 + Desktop / Android 同一套。
-
----
-
-## 核心 features(SPEC §3)
-
-1. **跨多機 tree view** — 多 host 並列,折疊展開,一眼看所有 host × session
-2. **一鍵 attach** — 點 session 直接進去,不用打 `tmux attach -t ...`
-3. **三層 refresh capture** — session / host / 全域,並行刷新看「現在所有機器在跑什麼」
-4. **Send message** — 不需要 attach 直接送一段文字 / 快捷鍵到 session
-5. **Line buffer 輸入** ⭐ 核心 — 字元先進本地 buffer,Enter 才整段送出,**IME 組字 Enter 不會誤送**;真正解決 colony 那種「打字打到一半 Claude 已經往前走」的坑
-6. **SSH server key TOFU** — 第一次連線記下 fingerprint,之後變了會拒絕(對齊 OpenSSH known_hosts 保護模型)
+**piermux's selling point:** cross-host tree view + good line-buffer typing + same app on Desktop and Android.
 
 ---
 
-## 目前狀態
+## Core features (SPEC §3)
 
-**M1(Desktop)**:**preview shipped**(v0.1.0,可日常使用)
-- ✅ Host CRUD(密碼存 OS keystore,SSH key 支援)
-- ✅ Tree view + tmux session list + 連線狀態
-- ✅ Capture mode + 三層 refresh + host capture grid + multi-host 並列比較
-- ✅ Attach mode(雙向 PTY,scroll capture / shell 直連)
-- ✅ Line buffer mode + Stream toggle(IME aware,Shift+Enter 換行)
-- ✅ Send message + quick presets(`/syncdesk`、ESC、Ctrl+L)
-- ✅ Sidebar 收合 + shell 直連模式
-- ⏳ Tray icon + window 隱藏(歸 M3 polish)
-
-**M2(Android)**:**code complete,等實機驗收**
-- ✅ NDK r27d cross-compile + Tauri 2 Android scaffold + 首次實機 boot(2026-05-13)
-- ✅ Android system back 鍵 + AndroidHostFormScreen(mobile-friendly form)
-- ✅ SessionScreen(capture / attach 切換)+ QuickKeyBar(JuiceSSH 風 19 鍵)
-- ✅ AttachView 雙向 PTY + line buffer + CTRL sticky modifier bar(22 鍵)
-- ✅ Release signing config 路徑(`gen/android/app/key.properties` gitignored)
-- ⏳ **實機跑完整流程(Claude Code attach + 中文 IME line buffer + 三層 refresh)** — owner 待驗
-- ⏳ SSH 私鑰 Android file picker(目前 workaround:`window.prompt` 貼路徑)
-
-**M3(Polish + 開源)**:進行中
-- ✅ 安全:server key TOFU、Tauri CSP、key.properties.example 中性化
-- ⏳ Tray icon、auto-reconnect、multi-window attach、AI-aware modifier bar 第三排
-
-詳細 milestone 拆解見 [`doc/SPEC.md` §8](doc/SPEC.md)。開發過程的 decision log / sprint notes 在 [`NOTES.md`](NOTES.md) + [`doc/`](doc/),vibe coding side project 完整公開。
+1. **Cross-host tree view** — Multiple hosts side by side, expand/collapse, all `host × session` at a glance
+2. **One-click attach** — Click a session to jump in, no `tmux attach -t ...` typing
+3. **Three-level refresh capture** — Per-session / per-host / global, parallel refresh to see "what's running everywhere right now"
+4. **Send message** — Push a string or named key (Escape / Ctrl+L / Up...) to a session without attaching
+5. **Line buffer input** ⭐ core — Characters land in a local buffer; Enter sends the whole line at once. **IME composition Enter never accidentally sends.** Solves the colony "Claude already moved on while I was typing" pain.
+6. **SSH server key TOFU** — Fingerprint recorded on first connect; mismatches rejected on later connects (same protection model as OpenSSH `known_hosts`).
 
 ---
 
-## 安裝 / 試用
+## Status
 
-### Pre-built(Windows)
+**M1 (Desktop)**: **v0.1.1 shipped** (daily-use ready) — [latest release](https://github.com/kirinchen/piermux/releases/tag/v0.1.1)
+- ✅ Host CRUD (passwords in OS keystore, SSH key auth)
+- ✅ Tree view + tmux session list + connection status
+- ✅ Capture mode + three-level refresh + per-host capture grid + multi-host side-by-side compare
+- ✅ Attach mode (bidirectional PTY, scrollable capture, direct-shell)
+- ✅ Line buffer mode + Stream toggle (IME-aware, Shift+Enter for newline)
+- ✅ Send message + quick presets (`/syncdesk`, ESC, Ctrl+L)
+- ✅ Collapsible sidebar + direct-shell mode
+- ⏳ Tray icon + window minimize (deferred to M3 polish)
 
-下載 [Releases](../../releases) 最新版本的 `.msi` 或 `.exe`。
+**M2 (Android)**: **code complete, awaiting real-device verification**
+- ✅ NDK r27d cross-compile + Tauri 2 Android scaffold + first device boot (2026-05-13)
+- ✅ Android system back-key handling + AndroidHostFormScreen (mobile-friendly form)
+- ✅ SessionScreen (capture / attach toggle) + QuickKeyBar (JuiceSSH-style 19 keys)
+- ✅ AttachView bidirectional PTY + line buffer + CTRL sticky modifier bar (22 keys)
+- ✅ Release signing config (`gen/android/app/key.properties` gitignored)
+- ⏳ **Full end-to-end on device (Claude Code attach + Chinese IME line buffer + three-level refresh)** — pending owner verification
+- ⏳ Native file picker for SSH private key on Android (current workaround: `window.prompt` for path)
 
-### 從 source 跑(Desktop)
+**M3 (Polish + open source)**: in progress
+- ✅ Security: server key TOFU, restrictive Tauri CSP, sanitized `key.properties.example`
+- ⏳ Tray icon, auto-reconnect, multi-window attach, AI-aware modifier bar third row
 
-需要 [Rust](https://rustup.rs/)(MSRV 1.85)+ [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/)。
+Full milestone breakdown is in [`doc/SPEC.md` §8](doc/SPEC.md). Decision log, sprint notes, and dev history live in [`NOTES.md`](NOTES.md) and [`doc/`](doc/) — fully public as a vibe-coded side project.
+
+---
+
+## Install
+
+### Pre-built (Windows)
+
+Download `.msi` or `.exe` from the [latest release](https://github.com/kirinchen/piermux/releases/latest).
+
+> ⚠️ **Windows SmartScreen warning** on first launch — the binary is not code-signed. Click "More info" → "Run anyway". A code-signing cert may be considered for M3.
+
+### From source (Desktop)
+
+Requires [Rust](https://rustup.rs/) (MSRV 1.85) + [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/).
 
 ```bash
 git clone https://github.com/kirinchen/piermux
 cd piermux
 npm install
-npm run tauri dev      # 開發模式
-npm run tauri build    # 出 release artifact 到 src-tauri/target/release/bundle/
+npm run tauri dev      # dev mode
+npm run tauri build    # release artifact → src-tauri/target/release/bundle/
 ```
 
-### 從 source 跑(Android)
+### From source (Android)
 
-額外需要 Android Studio + NDK r27d (27.3.13750724) + JDK 21。
+Additionally requires Android Studio + NDK r27d (27.3.13750724) + JDK 21.
 
 ```bash
-# 1. 複製 Android NDK linker config template,改成你自己的 NDK 路徑
+# 1. Copy NDK linker config template and edit to your NDK path
 cp .cargo/config.toml.example .cargo/config.toml
-# 編輯 .cargo/config.toml,把 4 條 linker 路徑指向你的 NDK 安裝位置
+# Edit .cargo/config.toml — point the 4 linker paths at your NDK install
 
-# 2. 安裝 Rust Android targets
+# 2. Install Rust Android targets
 rustup target add aarch64-linux-android armv7-linux-androideabi
 
-# 3. 接實機(USB debugging 開,跟 PC 同 WiFi 網段)
+# 3. Connect a device (USB debugging on, same WiFi subnet as PC)
 npm run tauri android dev
 
-# 4. release build(會需要 key.properties — 看 src-tauri/gen/android/app/key.properties.example)
+# 4. Release build (needs key.properties — see src-tauri/gen/android/app/key.properties.example)
 npm run tauri android build --release
 ```
 
 ---
 
-## 安全 model
+## Security model
 
-- **密碼**:存進 OS keystore(Windows Credential Manager / macOS Keychain / Linux Secret Service / Android Keystore 規劃中),**不寫進 DB**。
-- **SSH 私鑰**:DB 只存路徑,key 檔本體仍在使用者磁碟。
-- **Server host key**:第一次連線記下 fingerprint(SHA256 base64,對齊 OpenSSH 格式),之後比對。Fingerprint 變了會直接拒絕連線,錯誤訊息列出新舊兩個讓 user 判斷是 MITM 還是 server reinstall。要接受新 key:刪掉 host 重加。
-- **CSP**:WebView 設 `default-src 'self'`,沒外網連接、沒 inline script。
-- **Tauri capabilities**:只開 `core:default` + `sql:default`,沒 shell exec / 沒 fs read 之類擴大攻擊面的 plugin。
+- **Passwords** are stored in the OS keystore (Windows Credential Manager / macOS Keychain / Linux Secret Service / Android Keystore planned). **Never written to disk in plaintext.**
+- **SSH private keys** — only the path is stored in the DB; the key file itself stays on disk wherever you put it.
+- **Server host key TOFU** — On first connect, the SHA-256 fingerprint is recorded (OpenSSH-compatible format). On reconnect, mismatches are rejected with both fingerprints shown so you can decide if it's a MITM or a server reinstall. To accept a new key: delete and re-add the host.
+- **CSP** — WebView runs with `default-src 'self'`, no external content, no inline scripts.
+- **Tauri capabilities** — Only `core:default` + `sql:default` are granted. No shell-exec or fs-read plugins that would widen the attack surface.
 
 ---
 
 ## Tips
 
-### Attach mode 想用滾輪捲 tmux 歷史
+### Scrolling tmux history in attach mode
 
-Attach mode 下 piermux 會把滾輪事件吞掉(避免被 bash 當成 ↑↓ 觸發 history navigation)。要在 attach mode 滾 tmux 自己的 history 有兩條路:
+In attach mode piermux swallows the wheel event (otherwise bash treats it as ↑↓ and triggers history navigation). Two ways to scroll tmux history while attached:
 
-1. **tmux copy mode**(server 不用改):`prefix + [` 進 copy mode → PgUp / 方向鍵滾 → `q` 離開
-2. **server 端 tmux mouse on**(一勞永逸):在你常 attach 的 server 加進 `~/.tmux.conf`:
+1. **tmux copy mode** (no server config needed): `prefix + [` enters copy mode → PgUp / arrow keys → `q` to exit.
+2. **Server-side tmux mouse on** (one-time fix): add to `~/.tmux.conf`:
    ```
    set -g mouse on
    ```
-   然後 `tmux source-file ~/.tmux.conf` 重載。之後 attach mode 滾輪就會直接捲 tmux history
+   Then `tmux source-file ~/.tmux.conf`. Wheel will scroll tmux history directly after.
 
-要看更多歷史的另一條路是切到 **capture mode**(右上 [Detach] 旁的 mode 切換)— 直接抓 tmux 最後 2000 行 scrollback,不用攔截鍵盤。
+Another path: switch to **capture mode** (mode toggle next to `[Detach]` at top right) — grabs the last 2000 lines of tmux scrollback without keyboard interception.
 
-### Shell 直連模式滾輪可正常用
+### Direct-shell mode: wheel works normally
 
-shell 直連(host tree 上的 ⚡ row)走 normal screen,xterm 自己有 5000 行 scrollback,滾輪直接捲。
-
----
-
-## 技術選型
-
-- **[Tauri 2](https://tauri.app/)**(Rust + WebView)— 跨平台原生 app shell
-- **[makiko](https://crates.io/crates/makiko)** 0.2 — pure Rust SSH client(`russh` 待 ed25519-dalek upstream 修好,見 [`NOTES.md`](NOTES.md) D-6/D-7)
-- **[xterm.js](https://xtermjs.org/)** — terminal 渲染(capture + attach 共用)
-- **React 19** + **TanStack Query** + **Tailwind 4** + 手寫 shadcn-style 元件
-- **SQLite**(`tauri-plugin-sql` + 自開 sqlx pool)— host config + capture cache + host_keys TOFU storage
-- **[keyring](https://crates.io/crates/keyring)** 3 — macOS Keychain / Windows Credential Manager / Linux Secret Service / Android Keystore(M2 待驗)
+Direct-shell (the `⚡` row under each host) uses xterm's normal screen with 5000-line scrollback, so the wheel scrolls as expected.
 
 ---
 
-## 開發過程
+## Stack
 
-這是 **vibe coding** side project — 「小事自己決定,大事再問」。協作工具是 [Claude Code](https://claude.com/claude-code),工作守則寫在 [`CLAUDE.md`](CLAUDE.md),開發決策歷史在 [`NOTES.md`](NOTES.md),sprint / issue 紀錄在 [`doc/`](doc/)。整個過程公開,**留作 vibe coding 的工程實況參考**。
+- **[Tauri 2](https://tauri.app/)** (Rust + WebView) — cross-platform native app shell
+- **[makiko](https://crates.io/crates/makiko)** 0.2 — pure Rust SSH client (waiting on ed25519-dalek upstream before switching to `russh`, see [`NOTES.md`](NOTES.md) D-6 / D-7)
+- **[xterm.js](https://xtermjs.org/)** — terminal rendering (shared by capture + attach)
+- **React 19** + **TanStack Query** + **Tailwind 4** + hand-rolled shadcn-style components
+- **SQLite** (`tauri-plugin-sql` + own sqlx pool) — host config + capture cache + host_keys TOFU storage
+- **[keyring](https://crates.io/crates/keyring)** 3 — macOS Keychain / Windows Credential Manager / Linux Secret Service / Android Keystore (M2 pending)
+
+---
+
+## Development process
+
+This is a **vibe-coded** side project — "small things decide yourself, big things ask first". Built with [Claude Code](https://claude.com/claude-code) as collaborator. Working agreement in [`CLAUDE.md`](CLAUDE.md), decision history in [`NOTES.md`](NOTES.md), sprint / issue records in [`doc/`](doc/). The entire process is public — **kept as a reference for what vibe-coded engineering actually looks like.**
 
 ---
 
 ## License
 
-[MIT](LICENSE)。Copyright (c) 2026 kirinchen。
+[MIT](LICENSE). Copyright © 2026 kirinchen.
