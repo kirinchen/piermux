@@ -29,7 +29,7 @@ use tokio::sync::Semaphore;
 
 use crate::hosts::{self, Host};
 use crate::sessions;
-use crate::ssh::{self, SshSession};
+use crate::ssh::{self, HostKeyPolicy, SshSession};
 
 const HOST_CONCURRENCY: usize = 3;
 
@@ -58,7 +58,7 @@ pub async fn capture_session(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    let result = capture_one(&host, &session_name)
+    let result = capture_one(pool.inner(), &host, &session_name)
         .await
         .map_err(|e| e.to_string())?;
     write_cache(pool.inner(), &result)
@@ -129,7 +129,11 @@ async fn capture_host_inner(
     let password = sessions::read_password_for(&host)?;
     let auth = sessions::build_auth(&host, password.as_deref())?;
     let port = sessions::port_u16(&host)?;
-    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
+    let policy = HostKeyPolicy::Tofu {
+        pool,
+        host_id: &host.id,
+    };
+    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
         .await
         .with_context(|| format!("ssh connect to {}", host.display_name))?;
     let ssh_session = Arc::new(ssh_session);
@@ -222,10 +226,14 @@ async fn capture_via_session(
     })
 }
 
-async fn capture_one(host: &Host, session_name: &str) -> Result<CaptureResult> {
+async fn capture_one(pool: &SqlitePool, host: &Host, session_name: &str) -> Result<CaptureResult> {
     let password = sessions::read_password_for(host)?;
     let auth = sessions::build_auth(host, password.as_deref())?;
     let port = sessions::port_u16(host)?;
+    let policy = HostKeyPolicy::Tofu {
+        pool,
+        host_id: &host.id,
+    };
 
     // -p 印到 stdout / -e 含 ANSI escape codes / -S -<N> 從往回 N 行起
     let cmd = format!(
@@ -234,7 +242,7 @@ async fn capture_one(host: &Host, session_name: &str) -> Result<CaptureResult> {
         TMUX_CAPTURE_LINES,
     );
 
-    let stdout = ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, &cmd)
+    let stdout = ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, &cmd)
         .await
         .with_context(|| {
             format!(

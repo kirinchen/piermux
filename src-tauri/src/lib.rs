@@ -1,6 +1,7 @@
 mod attach;
 mod capture;
 mod commands;
+mod host_keys;
 mod hosts;
 mod messaging;
 mod secret;

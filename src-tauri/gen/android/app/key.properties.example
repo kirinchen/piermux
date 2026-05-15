@@ -7,10 +7,10 @@
 #   keytool -genkey -v -keystore piermux-release.jks ^
 #     -keyalg RSA -keysize 2048 -validity 36500 -alias piermux
 #
-# 建議 keystore 放 repo 外(例如 ~/Documents/piermux/piermux-release.jks),
-# 用絕對路徑寫進 storeFile。Backup 起來 — 弄丟以後沒辦法 update 同一個 app。
+# 建議 keystore 放 repo 外,用絕對路徑寫進 storeFile。
+# Backup 起來 — 弄丟以後沒辦法 update 同一個 app(Android Play Store / sideload 都認 key)。
 
-storeFile=C:\\Users\\kirin\\Documents\\piermux\\piermux-release.jks
+storeFile=path/to/piermux-release.jks
 storePassword=REPLACE_ME
 keyAlias=piermux
 keyPassword=REPLACE_ME

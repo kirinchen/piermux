@@ -2,6 +2,14 @@
   "name": "piermux",
   "private": true,
   "version": "0.1.0",
+  "description": "Cross-platform tmux session GUI — quick attach across multiple hosts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kirinchen/piermux.git"
+  },
+  "homepage": "https://github.com/kirinchen/piermux",
+  "bugs": "https://github.com/kirinchen/piermux/issues",
   "type": "module",
   "scripts": {
     "dev": "vite",

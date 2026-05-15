@@ -34,7 +34,7 @@ use uuid::Uuid;
 
 use crate::hosts;
 use crate::sessions;
-use crate::ssh::{self, SshSession};
+use crate::ssh::{self, HostKeyPolicy, SshSession};
 
 #[derive(Default)]
 pub struct AttachRegistry {
@@ -107,11 +107,18 @@ async fn finalize_attach(
     let attach_id_clone = attach_id.clone();
 
     let reader = tokio::spawn(async move {
+        // PTY raw bytes 是 stream — 多 byte UTF-8 字元(如中文)會跨 packet
+        // 邊界切開。直接 from_utf8_lossy 會把不完整的尾段轉成 �,中文
+        // attach 輸出會壞掉。保留 tail buffer 把不完整序列留到下個 packet 合併。
+        let mut utf8_tail: Vec<u8> = Vec::new();
         loop {
             match sess_rx.recv().await {
                 Ok(Some(event)) => match event {
                     SessionEvent::StdoutData(bytes) | SessionEvent::StderrData(bytes) => {
-                        let chunk = String::from_utf8_lossy(&bytes).into_owned();
+                        let chunk = drain_utf8(&mut utf8_tail, &bytes);
+                        if chunk.is_empty() {
+                            continue; // 整段都是 incomplete tail,等下個 packet
+                        }
                         let evt = format!("attach-output-{attach_id_clone}");
                         if let Err(e) = app_clone.emit(&evt, &chunk) {
                             eprintln!("[attach] emit {evt} failed: {e}");
@@ -126,6 +133,13 @@ async fn finalize_attach(
                     break;
                 }
             }
+        }
+        // session 結束時若 tail 還有殘餘 bytes(server 在多 byte 序列中斷),
+        // 用 lossy 收尾,讓 user 看得到 � 而不是默默吞字
+        if !utf8_tail.is_empty() {
+            let leftover = String::from_utf8_lossy(&utf8_tail).into_owned();
+            let evt = format!("attach-output-{attach_id_clone}");
+            let _ = app_clone.emit(&evt, &leftover);
         }
         let evt = format!("attach-closed-{attach_id_clone}");
         let _ = app_clone.emit(&evt, ());
@@ -158,8 +172,12 @@ pub async fn attach_session(
     let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
     let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
     let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
+    let policy = HostKeyPolicy::Tofu {
+        pool: pool.inner(),
+        host_id: &host.id,
+    };
 
-    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
+    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
         .await
         .map_err(|e| format!("ssh connect: {e}"))?;
     let ssh = Arc::new(ssh);
@@ -195,8 +213,12 @@ pub async fn attach_shell(
     let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
     let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
     let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
+    let policy = HostKeyPolicy::Tofu {
+        pool: pool.inner(),
+        host_id: &host.id,
+    };
 
-    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
+    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
         .await
         .map_err(|e| format!("ssh connect: {e}"))?;
     let ssh = Arc::new(ssh);
@@ -270,4 +292,96 @@ pub async fn detach_session(
 
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// 把 tail buffer + 新 bytes 合併,取出 valid UTF-8 字串,把不完整的尾巴留回
+/// tail buffer。中間遇到真的無效 byte 才插 U+FFFD(replacement char)。
+///
+/// 注意:tail buffer 上限不設限是刻意的 — UTF-8 最長 4 bytes,正常 PTY
+/// 串流不會長期累積。萬一 server 一直送殘 byte,下一次 ExitStatus / Eof
+/// 觸發的 leftover flush 會吞掉。
+fn drain_utf8(tail: &mut Vec<u8>, new_bytes: &[u8]) -> String {
+    let mut combined: Vec<u8> = Vec::with_capacity(tail.len() + new_bytes.len());
+    combined.extend_from_slice(tail);
+    combined.extend_from_slice(new_bytes);
+    tail.clear();
+
+    let mut out = String::new();
+    let mut cursor = &combined[..];
+    loop {
+        match std::str::from_utf8(cursor) {
+            Ok(s) => {
+                out.push_str(s);
+                return out;
+            }
+            Err(e) => {
+                let valid_up_to = e.valid_up_to();
+                // Safety: from_utf8 保證 [..valid_up_to] 是 valid UTF-8
+                out.push_str(unsafe { std::str::from_utf8_unchecked(&cursor[..valid_up_to]) });
+                match e.error_len() {
+                    None => {
+                        // 結尾不完整 — 把殘段留回 tail,等下個 packet 合
+                        tail.extend_from_slice(&cursor[valid_up_to..]);
+                        return out;
+                    }
+                    Some(skip) => {
+                        // 中間有真錯誤 — 插 replacement char,繼續處理後面
+                        out.push('\u{FFFD}');
+                        cursor = &cursor[valid_up_to + skip..];
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drain_utf8;
+
+    #[test]
+    fn ascii_passthrough() {
+        let mut tail = Vec::new();
+        assert_eq!(drain_utf8(&mut tail, b"hello"), "hello");
+        assert!(tail.is_empty());
+    }
+
+    #[test]
+    fn split_chinese_across_packets() {
+        // 「中」= E4 B8 AD,切兩段 [E4 B8] [AD]
+        let mut tail = Vec::new();
+        let part1 = drain_utf8(&mut tail, &[0xE4, 0xB8]);
+        assert_eq!(part1, "");
+        assert_eq!(tail.len(), 2);
+        let part2 = drain_utf8(&mut tail, &[0xAD]);
+        assert_eq!(part2, "中");
+        assert!(tail.is_empty());
+    }
+
+    #[test]
+    fn three_packet_split() {
+        // 「字」= E5 AD 97,切三段
+        let mut tail = Vec::new();
+        assert_eq!(drain_utf8(&mut tail, &[0xE5]), "");
+        assert_eq!(drain_utf8(&mut tail, &[0xAD]), "");
+        assert_eq!(drain_utf8(&mut tail, &[0x97]), "字");
+        assert!(tail.is_empty());
+    }
+
+    #[test]
+    fn ascii_then_split_multibyte() {
+        let mut tail = Vec::new();
+        // "hi中"切成 [h i E4 B8] [AD]
+        assert_eq!(drain_utf8(&mut tail, &[b'h', b'i', 0xE4, 0xB8]), "hi");
+        assert_eq!(drain_utf8(&mut tail, &[0xAD]), "中");
+    }
+
+    #[test]
+    fn genuine_invalid_byte() {
+        // 0xFF 是無論如何都不會出現的 UTF-8 byte
+        let mut tail = Vec::new();
+        let out = drain_utf8(&mut tail, &[b'a', 0xFF, b'b']);
+        assert_eq!(out, "a\u{FFFD}b");
+        assert!(tail.is_empty());
+    }
 }

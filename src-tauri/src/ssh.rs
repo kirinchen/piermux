@@ -4,7 +4,11 @@
 // 同樣 cross-compile,跟 russh 同性質),作為短期解法 / 視 PTY 行為決定是否常駐。
 //
 // 設計:
-// - 接受 ANY server pubkey(M1b 階段不做 known_hosts;M1c+ 補)
+// - **server pubkey TOFU**:每個 saved host 第一次連線記下 fingerprint,
+//   之後比對。不符 → 拒絕(可能 MITM,或 server reinstall 換 host key,
+//   user 要顯式 delete host 重加才接受新 key)。
+//   test_connection(form 還沒有 host_id)走 AcceptAny — 文件警告 user
+//   第一次測試這條 link 不檢查,save 起來之後才綁
 // - 支援 password 跟 pubkey(unencrypted + with passphrase)
 // - test_connection 跑 `whoami` 確認 channel 可開、auth + exec 全鏈路通
 // - `SshSession`(M1d):一條 SSH 連線多 channel,給 capture_host_inner 用
@@ -14,11 +18,14 @@ use anyhow::{anyhow, bail, Result};
 use makiko::{
     AuthPasswordResult, AuthPubkeyResult, Client, ClientConfig, ClientEvent, SessionEvent,
 };
+use sqlx::sqlite::SqlitePool;
 use std::path::Path;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+
+use crate::host_keys;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -28,6 +35,19 @@ pub enum AuthMaterial<'a> {
     Key {
         path: &'a Path,
         passphrase: Option<&'a str>,
+    },
+}
+
+/// Server pubkey 信任策略 — 強迫每個 caller 顯式選一個,避免「忘記驗 host key」
+/// 這種 silent footgun。
+pub enum HostKeyPolicy<'a> {
+    /// 接受任何 server key — 只給 test_connection 用(form 還沒 save,
+    /// 沒有 host_id 可綁)。其他路徑一律走 Tofu。
+    AcceptAny,
+    /// TOFU:第一次連線把 fingerprint 寫進 DB,之後比對。不符 → 拒絕。
+    Tofu {
+        pool: &'a SqlitePool,
+        host_id: &'a str,
     },
 }
 
@@ -64,11 +84,14 @@ impl Drop for SshSession {
 }
 
 /// TCP + SSH handshake + auth,回一個可 reuse 的 SshSession。
+/// `policy` 決定 server pubkey 是否驗 — saved host 一律傳 `Tofu`,
+/// 只有 test_connection(form 還沒 save)傳 `AcceptAny`。
 pub async fn connect(
     host: &str,
     port: u16,
     user: &str,
     auth: AuthMaterial<'_>,
+    policy: HostKeyPolicy<'_>,
 ) -> Result<SshSession> {
     let stream = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port)))
         .await
@@ -82,14 +105,14 @@ pub async fn connect(
         let _ = future.await;
     });
 
-    // server pubkey accept(M1b 一律接受;known_hosts 之後再做)
     loop {
         match receiver
             .recv()
             .await
             .map_err(|e| anyhow!("recv server event: {e}"))?
         {
-            Some(ClientEvent::ServerPubkey(_pubkey, accept_tx)) => {
+            Some(ClientEvent::ServerPubkey(pubkey, accept_tx)) => {
+                verify_server_pubkey(&pubkey, &policy).await?;
                 accept_tx.accept();
                 break;
             }
@@ -112,7 +135,9 @@ pub async fn test_connection(
     user: &str,
     auth: AuthMaterial<'_>,
 ) -> Result<()> {
-    let session = connect(host, port, user, auth).await?;
+    // test_connection 沒 host_id(form 還沒 save),只能 AcceptAny。
+    // 真正 save 後第一次 list_sessions / host_status 才會綁 TOFU fingerprint。
+    let session = connect(host, port, user, auth, HostKeyPolicy::AcceptAny).await?;
     // exec whoami 驗 channel 可開、auth + exec 全鏈路通
     session.exec("whoami").await?;
     Ok(())
@@ -125,10 +150,50 @@ pub async fn run_command(
     port: u16,
     user: &str,
     auth: AuthMaterial<'_>,
+    policy: HostKeyPolicy<'_>,
     cmd: &str,
 ) -> Result<String> {
-    let session = connect(host, port, user, auth).await?;
+    let session = connect(host, port, user, auth, policy).await?;
     session.exec(cmd).await
+}
+
+/// TOFU 驗證 — saved host 第一次連把 fingerprint 寫進 DB,之後比對。
+/// 不符 → 拒絕連線,錯誤訊息含 stored + received 兩個 fingerprint,讓 user
+/// 自己判斷是 MITM 還是 server reinstall。AcceptAny 直接過。
+async fn verify_server_pubkey(
+    pubkey: &makiko::Pubkey,
+    policy: &HostKeyPolicy<'_>,
+) -> Result<()> {
+    let (pool, host_id) = match policy {
+        HostKeyPolicy::AcceptAny => return Ok(()),
+        HostKeyPolicy::Tofu { pool, host_id } => (*pool, *host_id),
+    };
+
+    let received_type = pubkey.type_str();
+    let received_fingerprint = pubkey.fingerprint();
+
+    match host_keys::lookup(pool, host_id).await? {
+        None => {
+            // 第一次見 — 信任 + 寫進 DB
+            host_keys::record_first_seen(pool, host_id, &received_type, &received_fingerprint)
+                .await?;
+            Ok(())
+        }
+        Some(stored) => {
+            if stored.fingerprint == received_fingerprint {
+                Ok(())
+            } else {
+                bail!(
+                    "server host key 不符! 可能是 MITM 攻擊,或 server 換 key。\n\
+                     已記錄: {stored_type} {stored_fp}\n\
+                     收到:  {received_type} {received_fingerprint}\n\
+                     確認沒事的話,刪掉這個 host 重加(這會清掉 stored fingerprint)。",
+                    stored_type = stored.key_type,
+                    stored_fp = stored.fingerprint,
+                )
+            }
+        }
+    }
 }
 
 // ---- 內部 helpers ----

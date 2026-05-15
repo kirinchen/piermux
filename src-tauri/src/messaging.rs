@@ -19,7 +19,7 @@ use tauri::State;
 
 use crate::hosts;
 use crate::sessions;
-use crate::ssh;
+use crate::ssh::{self, HostKeyPolicy};
 
 #[tauri::command]
 pub async fn send_message(
@@ -37,7 +37,11 @@ pub async fn send_message(
     let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
     let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
 
-    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth)
+    let policy = HostKeyPolicy::Tofu {
+        pool: pool.inner(),
+        host_id: &host.id,
+    };
+    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
         .await
         .map_err(|e| format!("ssh connect: {e}"))?;
 

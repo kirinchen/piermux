@@ -5,6 +5,9 @@ description = "Cross-platform tmux session GUI — quick attach across multiple 
 authors = ["kirin"]
 edition = "2021"
 rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/kirinchen/piermux"
+homepage = "https://github.com/kirinchen/piermux"
 
 [lib]
 name = "piermux_lib"

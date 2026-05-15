@@ -35,3 +35,13 @@ CREATE TABLE IF NOT EXISTS capture_cache (
     captured_at  TEXT NOT NULL,
     PRIMARY KEY (host_id, session_name)
 );
+
+-- TOFU server pubkey 信任記錄(每個 host 第一次連上記下 fingerprint,
+-- 之後連線比對,不符 → 拒絕)。fingerprint 格式對齊 OpenSSH `ssh-keygen -lf`:
+-- `SHA256:<unpadded base64>`,跟 makiko Pubkey::fingerprint() 一致。
+CREATE TABLE IF NOT EXISTS host_keys (
+    host_id       TEXT PRIMARY KEY,
+    key_type      TEXT NOT NULL,
+    fingerprint   TEXT NOT NULL,
+    first_seen_at TEXT NOT NULL
+);

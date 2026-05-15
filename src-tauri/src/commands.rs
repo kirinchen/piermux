@@ -1,6 +1,7 @@
 // 6 個 Tauri commands(對齊 SPEC §6.1)。每個 command 把錯誤
 // map 成 String,M1 階段先用 Result<T, String>(CLAUDE.md 規定)。
 
+use crate::host_keys;
 use crate::hosts::{self, Host, HostForm};
 use crate::secret;
 use crate::ssh;
@@ -63,6 +64,10 @@ pub async fn delete_host(pool: State<'_, SqlitePool>, id: String) -> Result<(), 
         .await
         .map_err(|e| e.to_string())?;
     secret::delete_password(&id).map_err(|e| e.to_string())?;
+    // 一起清 TOFU 紀錄 — 重新加同 host 等於明示「我接受新 server key」
+    host_keys::forget(pool.inner(), &id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

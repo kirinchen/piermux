@@ -9,7 +9,7 @@ use tauri::State;
 
 use crate::hosts::{self, Host, HostConnectionStatus, Session};
 use crate::secret;
-use crate::ssh::{self, AuthMaterial};
+use crate::ssh::{self, AuthMaterial, HostKeyPolicy};
 
 pub(crate) const TMUX_LIST_FMT: &str =
     "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_windows}'";
@@ -22,17 +22,30 @@ pub async fn list_sessions(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    list_sessions_for(&host).await.map_err(|e| e.to_string())
+    list_sessions_for(pool.inner(), &host)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Backend helper:給已知的 Host 跑 `tmux list-sessions`,parse 回 Vec<Session>。
 /// `list_sessions` Tauri command 跟 capture.rs 共用。
-pub(crate) async fn list_sessions_for(host: &Host) -> Result<Vec<Session>> {
+pub(crate) async fn list_sessions_for(pool: &SqlitePool, host: &Host) -> Result<Vec<Session>> {
     let password = read_password_for(host)?;
     let auth = build_auth(host, password.as_deref())?;
     let port = port_u16(host)?;
-    let stdout =
-        ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, TMUX_LIST_FMT).await?;
+    let policy = HostKeyPolicy::Tofu {
+        pool,
+        host_id: &host.id,
+    };
+    let stdout = ssh::run_command(
+        &host.ssh_host,
+        port,
+        &host.ssh_user,
+        auth,
+        policy,
+        TMUX_LIST_FMT,
+    )
+    .await?;
     parse_sessions(&stdout)
 }
 
@@ -57,8 +70,18 @@ pub async fn host_status(
         return Ok(HostConnectionStatus::Disconnected);
     };
 
-    match ssh::test_connection(&host.ssh_host, port, &host.ssh_user, auth).await {
-        Ok(()) => Ok(HostConnectionStatus::Connected),
+    // host_status 走 TOFU。第一次連線會綁 fingerprint;之後 fingerprint
+    // mismatch 會出錯 → 顯示 disconnected(避免 silent fallback 到 MITM key)
+    let policy = HostKeyPolicy::Tofu {
+        pool: pool.inner(),
+        host_id: &host.id,
+    };
+    let session = match ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy).await {
+        Ok(s) => s,
+        Err(_) => return Ok(HostConnectionStatus::Disconnected),
+    };
+    match session.exec("whoami").await {
+        Ok(_) => Ok(HostConnectionStatus::Connected),
         Err(_) => Ok(HostConnectionStatus::Disconnected),
     }
 }

@@ -1,0 +1,31 @@
+# Android cross-compile linker config (M2)
+#
+# 各人 NDK 安裝路徑不同,所以這份是 example。Clone 完請複製成
+# `.cargo/config.toml`(真檔已被 .gitignore 排掉),把 4 條 linker 路徑
+# 改成你自己的 NDK 路徑。
+#
+# NDK r27d (27.3.13750724) 跑得起來 — 詳 NOTES.md D-13 / D-15。
+# Min API 24 (Android 7.0) per Tauri 2 default。
+#
+# Windows 路徑範例(NDK 裝在 Android Studio 預設位置):
+#   C:\Users\<you>\AppData\Local\Android\Sdk\ndk\<ver>\toolchains\llvm\prebuilt\windows-x86_64\bin\
+# macOS:
+#   ~/Library/Android/sdk/ndk/<ver>/toolchains/llvm/prebuilt/darwin-x86_64/bin/
+# Linux:
+#   ~/Android/Sdk/ndk/<ver>/toolchains/llvm/prebuilt/linux-x86_64/bin/
+#
+# 另一條路:不寫 config,改用 env var
+#   CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=/path/to/aarch64-linux-android24-clang
+# CI 環境推薦走 env var(避免 config.toml 跟 OS 綁死)
+
+[target.aarch64-linux-android]
+linker = "C:\\path\\to\\android-ndk\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\aarch64-linux-android24-clang.cmd"
+
+[target.armv7-linux-androideabi]
+linker = "C:\\path\\to\\android-ndk\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\armv7a-linux-androideabi24-clang.cmd"
+
+[target.i686-linux-android]
+linker = "C:\\path\\to\\android-ndk\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\i686-linux-android24-clang.cmd"
+
+[target.x86_64-linux-android]
+linker = "C:\\path\\to\\android-ndk\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\x86_64-linux-android24-clang.cmd"

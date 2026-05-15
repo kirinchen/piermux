@@ -45,3 +45,16 @@ img.png
 *.local.png
 /scratch*.png
 
+# --- Secrets / signing keys 安全網(防呆,gen/android/.gitignore 之外的目錄萬一放錯)---
+*.jks
+*.keystore
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+
+# --- Local dev machine pinned configs(.cargo/config.toml NDK 路徑各人不同)---
+.cargo/config.toml
+

@@ -11,7 +11,7 @@ issues: [ISSUE-010]
 ## Why
 
 對齊 [SPEC §8 M2](../SPEC.md)。M2a 在 2026-05-13 已完整收尾(NDK + cargo
-cross-compile + 首次實機 boot ✓,Galaxy `R5CW60V57KH` 跑得起來)。剩下的
+cross-compile + 首次實機 boot ✓,Android 實機跑得起來)。剩下的
 M2b..M2e 是把 desktop M1 的核心體驗搬到手機:tree view、refresh、attach、
 **line buffer**(SPEC 全文反覆強調的核心賣點 — 這才是 piermux 比 colony /
 JuiceSSH 強的地方)。

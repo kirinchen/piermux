@@ -21,7 +21,7 @@
 
 `tsc --noEmit` + `npm run build` 過(1907 modules / 225KB gzip)。
 
-**M2a 完整 ✓(2026-05-13)** — NDK r27d (27.3.13750724) + cross-compile + 首次實機 boot(Galaxy `R5CW60V57KH`)。詳 D-15。
+**M2a 完整 ✓(2026-05-13)** — NDK r27d (27.3.13750724) + cross-compile + 首次實機 boot(Android 實機)。詳 D-15。
 
 **M1 desktop preview** 已 ship v0.1.0(2026-05-01)。EPIC-004 backlog 待開工(切 session 不殺 scrollback)。
 
