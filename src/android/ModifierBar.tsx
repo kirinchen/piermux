@@ -24,6 +24,8 @@ const KEYS: Key[] = [
   { label: "↓", bytes: "\x1b[B" },
   { label: "←", bytes: "\x1b[D" },
   { label: "→", bytes: "\x1b[C" },
+  // 空 buffer 也能送 Enter — Claude 選單「選好按 Enter 確認」常用
+  { label: "⏎", bytes: "\r" },
   { label: "/", bytes: "/" },
   { label: "-", bytes: "-" },
   { label: "|", bytes: "|" },

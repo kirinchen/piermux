@@ -21,6 +21,8 @@ const KEYS: QuickKey[] = [
   { label: "↓", payload: "Down", literal: false },
   { label: "←", payload: "Left", literal: false },
   { label: "→", payload: "Right", literal: false },
+  // Claude 選單「選好按 Enter 確認」常用 — tmux send-keys Enter
+  { label: "⏎", payload: "Enter", literal: false },
   { label: "/", payload: "/", literal: true },
   { label: "-", payload: "-", literal: true },
   { label: "|", payload: "|", literal: true },

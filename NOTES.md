@@ -283,6 +283,28 @@ Tauri Android Studio project,含 Gradle config(build.gradle.kts / settings.gradl
 - 對齊 SPEC §8 M2a-M2e 開 EPIC-002(目前在 `task.md` Backlog 列為 placeholder)
 - D-4 留下的 Android keystore 私鑰 import 還沒實作(M2 後續)
 
+### 2026-05-20 — D-17 Android 軟鍵盤 footer + stream mode parity
+
+實機回報兩個 attach/capture 的 input bar 問題,都修在 `src/android/`:
+
+**問題 1 — 軟鍵盤蓋住底部輸入框**
+- 原本 `SessionScreen` root 用 `h-dvh`。Android WebView 上 `dvh`/`vh` 跟軟鍵盤互動不可靠 — 鍵盤彈出時不縮,底部輸入框被蓋掉
+- 修法兩層:
+  1. `AndroidManifest.xml` activity 加 `android:windowSoftInputMode="adjustResize"` — 鍵盤彈出時整個視窗縮小,不再用 pan(pan 會把 fixed footer 推到鍵盤後面)
+  2. 新增 `useViewportHeight` hook,用 `window.visualViewport.height` 當 root 高度。`visualViewport` 永遠等於沒被鍵盤蓋住的可視區 → 輸入框一直浮在鍵盤上方(JuiceSSH 那種預留 footer)
+- ISSUE-010 待驗清單的「軟鍵盤 × xterm fit」這項一併涵蓋:root 縮 → ResizeObserver → `fit()` 重算 cols/rows
+
+**問題 2 — Android attach 只有 line mode,沒 stream**
+- desktop `SessionPanel` 有 Line/Stream toggle(D-11),Android `AttachView` M2d 只做了 line buffer
+- 補上 parity:`SessionScreen` 加 `inputMode` state + header `InputModeToggle`;`AttachView` stream 時 `xterm.disableStdin=false` + `term.onData` 直接打進 PTY(對齊 desktop)
+- **偏離 D-11:Android 預設 `line`,desktop 預設 `stream`。** 理由:Android line buffer 是 piermux 對手機的核心賣點(解 colony 痛點),手機沒實體鍵盤、stream 誤送風險更高。Stream 留 toggle 給 vim/less/互動 prompt 用。owner 不同意可改一行 `useState<InputMode>("line")`
+- **owner feedback:Line mode 補 `⏎` 快速鍵。** 用 Claude 常常「方向鍵選好 → Enter 確認」,但 Line mode 空 buffer 按 Enter 不會送(`sendBuffer` 有 `buffer.length === 0` 擋)。在 `ModifierBar`(attach)+ `QuickKeyBar`(capture)的方向鍵後面各加一顆 `⏎`:attach 直送 `\r`,capture 走 tmux `send-keys Enter`
+- 已知小坑:stream mode 下 ModifierBar 的 CTRL sticky 失效(它靠攔 line textarea 的 keydown,stream 沒 textarea)。直送鍵 ESC/^C/方向鍵走 `writeRaw` 不受影響。切到 stream 時自動清掉 sticky 高亮。要修得改 ModifierBar prop,留 follow-up
+
+`tsc --noEmit` 過。專案沒設定 eslint(CLAUDE.md 寫了但 root 無 config),無法跑 lint。
+
+---
+
 ### 2026-05-14 — D-16 M2e release signing config + D-4 範圍釐清
 
 **M2e 做了什麼:**
