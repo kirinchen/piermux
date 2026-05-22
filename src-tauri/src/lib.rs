@@ -19,6 +19,8 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("resolve app_data_dir");
+            // Android secret 後端要知道 app 私有資料夾(desktop 走 keyring,無害)
+            secret::init_dir(&app_data_dir);
             let db_path = app_data_dir.join("piermux.db");
             let pool =
                 tauri::async_runtime::block_on(async move { hosts::open_pool(&db_path).await })

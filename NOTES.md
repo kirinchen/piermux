@@ -11,7 +11,11 @@
 - `45ed70c` M2c:SessionScreen capture mode + QuickKeyBar 19 鍵 + 三層 refresh
 - `9e5ba5b` Delete host(M2b/c follow-up)
 - `5eeabc6` M2d:AttachView 雙向 PTY + line buffer + ModifierBar 22 鍵 + CTRL sticky
-- **本** M2e:`app/build.gradle.kts` release signing + `key.properties.example`、capture 回前景 auto-refresh(`visibilitychange`),詳 D-16
+- `8e12f96` M2e:`app/build.gradle.kts` release signing + `key.properties.example`、capture 回前景 auto-refresh(`visibilitychange`),詳 D-16
+
+**M2 polish — 實機回報修正(2026-05-20 / 05-22)**
+- `9aa991c` D-17:軟鍵盤 footer + stream mode parity + ⏎ 快速鍵
+- D-18(待 commit):Android 系統列 safe-area — header 不再被狀態列蓋;Android secret 後端 — keyring 無 Android backend,改存 app 私有檔
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
@@ -302,6 +306,52 @@ Tauri Android Studio project,含 Gradle config(build.gradle.kts / settings.gradl
 - 已知小坑:stream mode 下 ModifierBar 的 CTRL sticky 失效(它靠攔 line textarea 的 keydown,stream 沒 textarea)。直送鍵 ESC/^C/方向鍵走 `writeRaw` 不受影響。切到 stream 時自動清掉 sticky 高亮。要修得改 ModifierBar prop,留 follow-up
 
 `tsc --noEmit` 過。專案沒設定 eslint(CLAUDE.md 寫了但 root 無 config),無法跑 lint。
+
+---
+
+### 2026-05-22 — D-18 Android 系統列 safe-area + Android secret 後端(實機回報)
+
+實機回報三件事:APK 是舊的、header 不見了、不能 save password。第一件重 build
+即可(缺 D-17 的 commit);後兩件是真 bug,各自修。
+
+**問題 1 — header 被 Android 系統狀態列蓋掉**
+- 根因:Tauri 2 Android 是 edge-to-edge,WebView 從螢幕最頂端畫。`index.html`
+  的 viewport meta 沒 `viewport-fit=cover`,專案也沒用 `env(safe-area-inset-*)`
+  → header(頂部)卡在系統狀態列下面看不到
+- 修法三步:
+  1. `index.html` meta 加 `viewport-fit=cover` —— WebView 才會回報真實 inset
+  2. `index.css` 加 `.pt-safe` / `.pb-safe`(`padding: env(safe-area-inset-top/bottom)`)
+  3. 四個 Android screen 的 root(SessionScreen / HostListScreen /
+     SessionListScreen / AndroidHostFormScreen)掛 `.pt-safe .pb-safe`
+- desktop 上 `env()` = 0,套了無害,不影響桌面版
+- 已知小坑:鍵盤彈出時 `pb-safe` 仍算手勢列 inset → 輸入框離鍵盤多 ~24–48px
+  空隙(視覺小瑕,功能不受影響)。若某些裝置 WebView 不派發 inset 導致
+  `env()` 回 0,要改走 Kotlin 端 dispatch insets,留 follow-up
+
+**問題 2 — Android 不能 save password(接續 D-9)**
+- D-9 只在 `Cargo.toml` 加 `apple-native` / `windows-native` /
+  `sync-secret-service` 三個 feature —— 全是 desktop。Android 上 keyring 還是
+  fallback mock(寫進去就丟)。D-9 NOTES 自己寫了「Android 邏輯留給
+  EPIC-002」,但 EPIC-002 success criteria 沒列,一直沒做
+- owner 拍板方案(AskUserQuestion):**app 私有檔(純 Rust)**,不走 Keystore
+  plugin、不走 stronghold
+- 修法:`secret.rs` 用 `#[cfg(target_os = "android")]` 切兩個 backend
+  - desktop 不變 —— keyring,account name 維持 `host/{host_id}/password`
+    (動了既有 Windows 已存的密碼會讀不回)
+  - Android —— 密碼寫進 `app_data_dir/secrets/{host_id}.password`
+  - `lib.rs` setup hook 多一行 `secret::init_dir(&app_data_dir)` 把私有資料夾
+    位置注入(`OnceLock`,公開函式簽名不變,commands.rs / sessions.rs 不用動)
+- **偏離 SPEC §5「密碼存 OS keystore」。** 理由:keyring crate 沒 Android 後端;
+  真 Keystore 要寫 Kotlin Tauri plugin(估半天+);side project 先讓 Android
+  能用。Android app sandbox 保證別的 app 讀不到,非 root 裝置等同私有儲存
+- **安全性說明:非硬體加密,密碼在私有目錄是明文。** 已知 gap:
+  `AndroidManifest` 的 `android:allowBackup` 若為 true,secrets 檔會被收進
+  Android 備份 → 建議之後設 `allowBackup="false"` 或排除 secrets 目錄。
+  升級成硬體 Keystore 是乾淨的 follow-up
+- 驗證:desktop `cargo check` + `cargo clippy -- -D warnings` 過;
+  `cargo check` / `clippy --target aarch64-linux-android` 過(bare cargo 不會
+  自動帶 NDK toolchain env,要手動 export `CC_aarch64_linux_android` 等)。
+  `tsc --noEmit` 過。實機未驗 —— 待 owner build APK 測
 
 ---
 

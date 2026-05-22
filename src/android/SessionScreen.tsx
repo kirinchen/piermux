@@ -40,7 +40,7 @@ export function SessionScreen({ hostId, target, onBack }: Props) {
 
   return (
     <div
-      className="flex flex-col overflow-hidden bg-zinc-950 text-zinc-100"
+      className="flex flex-col overflow-hidden bg-zinc-950 text-zinc-100 pt-safe pb-safe"
       style={{ height: viewportHeight }}
     >
       <header className="flex items-center gap-2 border-b border-zinc-800 px-2 py-3">

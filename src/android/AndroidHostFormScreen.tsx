@@ -85,7 +85,7 @@ export function AndroidHostFormScreen({ editing, onClose }: Props) {
   };
 
   return (
-    <div className="flex h-dvh flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-dvh flex-col bg-zinc-950 text-zinc-100 pt-safe pb-safe">
       <header className="flex items-center gap-3 border-b border-zinc-800 px-2 py-3">
         <button
           type="button"

@@ -32,6 +32,17 @@ html, body, #root {
   margin: 0;
 }
 
+/* Android 系統列(status bar / 手勢列)safe-area。
+   index.html 的 viewport-fit=cover 讓 env() 回傳真實 inset;desktop /
+   無瀏海裝置上 env() = 0,套了也無害。各 Android screen 的 root 掛
+   .pt-safe .pb-safe,header / 底部輸入框就不會被系統列蓋住。 */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
 /* xterm viewport scrollbar 加粗加對比 — 預設那條跟黑底融在一起,user 反映看不到。
    仿 Xshell:右側粗 scrollbar 可拖,滾輪也照常可滾。
    alt-screen(tmux attach)沒 scrollback 不會出現,沒 scrollback 的場景才看不到 */

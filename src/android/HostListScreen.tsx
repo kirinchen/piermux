@@ -23,7 +23,7 @@ export function HostListScreen({ onSelectHost, onAddHost, onEditHost }: Props) {
   };
 
   return (
-    <div className="flex h-dvh flex-col bg-zinc-950 text-zinc-100">
+    <div className="flex h-dvh flex-col bg-zinc-950 text-zinc-100 pt-safe pb-safe">
       <header className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3">
         <h1 className="text-lg font-semibold">piermux</h1>
         <div className="flex gap-2">
