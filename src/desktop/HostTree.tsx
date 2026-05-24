@@ -17,7 +17,12 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useHostsList, useDeleteHost } from "@/hooks/useHosts";
-import { useSessions, useHostStatus } from "@/hooks/useSessions";
+import {
+  useSessions,
+  useHostStatus,
+  useKillSession,
+  useRenameSession,
+} from "@/hooks/useSessions";
 import { useRefreshHost } from "@/hooks/useCapture";
 import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
@@ -306,6 +311,9 @@ function HostRow({
                 onSelect={() =>
                   onSelect({ kind: "session", host, session: s })
                 }
+                onAfterKill={() => {
+                  if (selected) onSelect(null);
+                }}
               />
             );
           })}
@@ -320,13 +328,17 @@ function SessionRow({
   session,
   selected,
   onSelect,
+  onAfterKill,
 }: {
   host: Host;
   session: Session;
   selected: boolean;
   onSelect: () => void;
+  onAfterKill: () => void;
 }) {
   const [refreshing, setRefreshing] = React.useState(false);
+  const kill = useKillSession();
+  const rename = useRenameSession();
 
   const handleRefreshSession = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -337,6 +349,36 @@ function SessionRow({
       toast.error(`${session.name} refresh 失敗:${String(err)}`);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleRename = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const input = window.prompt(`重新命名 session '${session.name}' 為:`, session.name);
+    if (input == null) return;
+    const next = input.trim();
+    if (next === "" || next === session.name) return;
+    try {
+      await rename.mutateAsync({
+        hostId: host.id,
+        sessionName: session.name,
+        newName: next,
+      });
+      toast.success(`已重新命名:${session.name} → ${next}`);
+    } catch (err) {
+      toast.error(`rename 失敗:${String(err)}`);
+    }
+  };
+
+  const handleKill = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`確定要 kill session '${session.name}'?(無法復原)`)) return;
+    try {
+      await kill.mutateAsync({ hostId: host.id, sessionName: session.name });
+      toast.success(`已 kill session:${session.name}`);
+      onAfterKill();
+    } catch (err) {
+      toast.error(`kill 失敗:${String(err)}`);
     }
   };
 
@@ -357,19 +399,39 @@ function SessionRow({
           {session.attached ? "attached" : "idle"} · {relativeTime(session.activity)}
         </span>
       </button>
-      <button
-        type="button"
-        onClick={handleRefreshSession}
-        disabled={refreshing}
-        className="hidden rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50 group-hover:block"
-        title="重抓此 session capture"
-      >
-        {refreshing ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3 w-3" />
-        )}
-      </button>
+      <div className="hidden gap-0.5 group-hover:flex">
+        <button
+          type="button"
+          onClick={handleRefreshSession}
+          disabled={refreshing}
+          className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50"
+          title="重抓此 session capture"
+        >
+          {refreshing ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={handleRename}
+          disabled={rename.isPending}
+          className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50"
+          title="重新命名 session"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          onClick={handleKill}
+          disabled={kill.isPending}
+          className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50"
+          title="Kill session(tmux kill-session)"
+        >
+          <Trash2 className="h-3 w-3 text-destructive" />
+        </button>
+      </div>
     </div>
   );
 }

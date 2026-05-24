@@ -309,6 +309,29 @@ Tauri Android Studio project,含 Gradle config(build.gradle.kts / settings.gradl
 
 ---
 
+### 2026-05-24 — D-19 Tree view session-level kill + rename
+
+**範圍 + SPEC 對應**
+- `kill_session` SPEC §6.6 明列,一直沒實作。本 commit 補。
+- `rename_session` **SPEC 沒列**,§10 不做清單也沒禁。同類「對 tree node 的 session 控制面」UX,加進 sessions.rs 一起。CLAUDE.md 紅線「SPEC §10 列為不做的事」不撞 → 不問,直接做、寫 NOTES。
+
+**Backend(`sessions.rs`)**
+- 加 `kill_session(host_id, session_name)` → `tmux kill-session -t <session>`
+- 加 `rename_session(host_id, session_name, new_name)` → `tmux rename-session -t <old> <new>`
+- 共用 `run_tmux_control` helper(走 `ssh::run_command` one-shot)+ 私有 `shell_quote`
+- `new_name` 驗 trim 後非空、不含 `:` / `.` / 空白(tmux target spec 不准)— 拒絕在 backend,frontend 不必再驗
+
+**Frontend**
+- desktop:`HostTree.tsx` `SessionRow` hover 從 [🔄] 擴成 [🔄 / ✏ rename / 🗑 kill]。Rename 用 `window.prompt`、kill 用 `window.confirm`(對齊 host row 既有 pattern,不引新 dialog 元件)。Kill 成功若該 session 是當前 selection → `onSelect(null)`
+- Android:`SessionListScreen.tsx` `SessionRow` 右側固定貼 ✏ + 🗑 按鈕(手機 hover 不存在改 always-visible)。也是 `window.prompt` / `window.confirm`
+- `useSessions.ts` 加 `useKillSession` / `useRenameSession` mutation,`onSuccess` 自動 `invalidateQueries(['sessions', 'list', hostId])`
+
+**沒做的**
+- 沒做 multi-select kill(SPEC §3.1 tree 是 host-level checkbox,不是 session-level)— 想要的話另開 issue
+- Rename 沒做衝突檢查 — tmux 自己會回錯(target 已存在),`toast.error` 顯示就好,不必前端先 list 比對
+
+---
+
 ### 2026-05-22 — D-18 Android 系統列 safe-area + Android secret 後端(實機回報)
 
 實機回報三件事:APK 是舊的、header 不見了、不能 save password。第一件重 build

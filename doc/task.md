@@ -22,6 +22,12 @@
 
 ## 進行中 / open(短期 actionable)
 
+### Session-level kill + rename(本 commit,NOTES D-19)
+- Backend `sessions.rs` 加 `kill_session`(SPEC §6.6 補做)/ `rename_session`(SPEC 沒列、§10 沒禁,同類 UX)
+- Desktop `HostTree.tsx` `SessionRow` hover 加 ✏ / 🗑;Android `SessionListScreen.tsx` 行尾 always-visible
+- `useKillSession` / `useRenameSession` mutation 自動 invalidate sessions list
+- **等 owner Windows 真實環境驗:** tree hover ✏ rename / 🗑 kill 流程 + Android 兩個按鈕
+
 ### M1d 完成 ✓(ISSUE-004,1 host scale 驗 ✓,3 host scale 等 owner 環境)
 - Backend `59a7916` + Frontend `03a9196` + Perf `1f3ad4a` + Grid UX `7419866`
 - 1 host × 3 session ship + grid view owner 已 ship 驗證 ✓

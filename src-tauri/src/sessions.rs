@@ -1,5 +1,9 @@
 // 真實 list_sessions / host_status —— 取代 sessions_mock.rs。
 // 用 makiko exec `tmux list-sessions -F '...'` 拿格式化輸出再 parse。
+//
+// 也擺 SPEC §6.6 的 kill_session、加 rename_session(SPEC 沒列但 §10 也沒禁,
+// tree view session-level UX 配套)— 兩個都走 one-shot run_command,跟
+// list_sessions / host_status 同 module 對齊「對 tmux 控制面」的東西放這。
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::DateTime;
@@ -47,6 +51,75 @@ pub(crate) async fn list_sessions_for(pool: &SqlitePool, host: &Host) -> Result<
     )
     .await?;
     parse_sessions(&stdout)
+}
+
+#[tauri::command]
+pub async fn kill_session(
+    pool: State<'_, SqlitePool>,
+    host_id: String,
+    session_name: String,
+) -> Result<(), String> {
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    let cmd = format!("tmux kill-session -t {}", shell_quote(&session_name));
+    run_tmux_control(pool.inner(), &host, &cmd)
+        .await
+        .with_context(|| format!("kill-session '{}' on {}", session_name, host.display_name))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rename_session(
+    pool: State<'_, SqlitePool>,
+    host_id: String,
+    session_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    let new_name = new_name.trim();
+    if new_name.is_empty() {
+        return Err("new session name cannot be empty".into());
+    }
+    if new_name.contains([':', '.', ' ']) {
+        return Err("session name cannot contain ':', '.' or whitespace".into());
+    }
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    let cmd = format!(
+        "tmux rename-session -t {} {}",
+        shell_quote(&session_name),
+        shell_quote(new_name),
+    );
+    run_tmux_control(pool.inner(), &host, &cmd)
+        .await
+        .with_context(|| {
+            format!(
+                "rename-session '{}' → '{}' on {}",
+                session_name, new_name, host.display_name
+            )
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 共用 helper:跑一條沒輸出在乎的 tmux 控制指令(kill / rename / …)。
+async fn run_tmux_control(pool: &SqlitePool, host: &Host, cmd: &str) -> Result<()> {
+    let password = read_password_for(host)?;
+    let auth = build_auth(host, password.as_deref())?;
+    let port = port_u16(host)?;
+    let policy = HostKeyPolicy::Tofu {
+        pool,
+        host_id: &host.id,
+    };
+    ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, cmd).await?;
+    Ok(())
+}
+
+/// POSIX shell 單引號逃脫(同 capture.rs / messaging.rs 各自的 shell_quote)。
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 #[tauri::command]

@@ -1,5 +1,10 @@
+import type { MouseEvent } from "react";
 import { toast } from "sonner";
-import { useSessions } from "@/hooks/useSessions";
+import {
+  useSessions,
+  useKillSession,
+  useRenameSession,
+} from "@/hooks/useSessions";
 import { useHostsList } from "@/hooks/useHosts";
 import { useRefreshHost } from "@/hooks/useCapture";
 import type { Session } from "@/lib/types";
@@ -75,6 +80,7 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
           {sessions?.map((s) => (
             <SessionRow
               key={s.name}
+              hostId={hostId}
               session={s}
               onSelect={() =>
                 onSelectTarget({ kind: "tmux", session: s.name })
@@ -107,18 +113,48 @@ function ShellRow({ onSelect }: { onSelect: () => void }) {
 }
 
 function SessionRow({
+  hostId,
   session,
   onSelect,
 }: {
+  hostId: string;
   session: Session;
   onSelect: () => void;
 }) {
+  const kill = useKillSession();
+  const rename = useRenameSession();
+
+  const handleRename = async (e: MouseEvent) => {
+    e.stopPropagation();
+    const input = window.prompt(`重新命名 '${session.name}' 為:`, session.name);
+    if (input == null) return;
+    const next = input.trim();
+    if (next === "" || next === session.name) return;
+    try {
+      await rename.mutateAsync({ hostId, sessionName: session.name, newName: next });
+      toast.success(`已重新命名:${session.name} → ${next}`);
+    } catch (err) {
+      toast.error(`rename 失敗:${String(err)}`);
+    }
+  };
+
+  const handleKill = async (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`確定要 kill session '${session.name}'?`)) return;
+    try {
+      await kill.mutateAsync({ hostId, sessionName: session.name });
+      toast.success(`已 kill:${session.name}`);
+    } catch (err) {
+      toast.error(`kill 失敗:${String(err)}`);
+    }
+  };
+
   return (
-    <li>
+    <li className="flex items-stretch gap-2 rounded-lg border border-zinc-800 bg-zinc-900 active:bg-zinc-800">
       <button
         type="button"
         onClick={onSelect}
-        className="flex w-full items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-4 text-left active:bg-zinc-800"
+        className="flex flex-1 items-center gap-3 px-4 py-4 text-left"
       >
         <span className="flex-1 min-w-0">
           <span className="block text-base font-medium">{session.name}</span>
@@ -128,6 +164,26 @@ function SessionRow({
           </span>
         </span>
         <span className="text-zinc-500">›</span>
+      </button>
+      <button
+        type="button"
+        onClick={handleRename}
+        disabled={rename.isPending}
+        className="px-3 text-base text-zinc-300 active:bg-zinc-700 disabled:opacity-50"
+        title="重新命名"
+        aria-label="rename"
+      >
+        ✏
+      </button>
+      <button
+        type="button"
+        onClick={handleKill}
+        disabled={kill.isPending}
+        className="px-3 text-base text-red-400 active:bg-zinc-700 disabled:opacity-50"
+        title="Kill session"
+        aria-label="kill"
+      >
+        🗑
       </button>
     </li>
   );

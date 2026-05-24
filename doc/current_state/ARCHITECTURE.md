@@ -18,7 +18,7 @@ owner: kirin
 - `App.tsx` — root,platform routing:`isAndroid()`(UA 偵測)→ `<AndroidApp />`,否則 `<HostsView />`(desktop)
 - `lib/platform.ts` — `detectPlatform()` / `isAndroid()` 用 `navigator.userAgent` 判 Android WebView。M2b 起步用,需要更細粒度(iOS / version detection)再升 `@tauri-apps/plugin-os`
 - `desktop/HostsView.tsx` — top-level layout(header + collapsible sidebar + main panel + dialog)。`Selection` 4-variant discriminated union 路由 main panel
-- `desktop/HostTree.tsx` — 左側 host/session tree。每 host row 含 `[checkbox]` (multi-select) + chevron + status icon + name + hover [🔄 / ✏ / 🗑]。展開後第一個 child 是 ⚡ shell synthetic row,然後是 tmux sessions
+- `desktop/HostTree.tsx` — 左側 host/session tree。每 host row 含 `[checkbox]` (multi-select) + chevron + status icon + name + hover [🔄 / ✏ / 🗑]。展開後第一個 child 是 ⚡ shell synthetic row,然後是 tmux sessions。每個 tmux session row hover 出 [🔄 / ✏ rename / 🗑 kill](走 `useKillSession` / `useRenameSession`,SPEC §6.6)
 - `desktop/HostCaptureGrid.tsx` — 單 host capture grid view(host name click 進)
 - `desktop/MultiHostCaptureGrid.tsx` — 多 host 並列(checkbox 勾 ≥1 進);內部 `HostSection` per host
 - `desktop/CaptureCell.tsx` — 一個 session 的 mini xterm capture cell,grid 用
@@ -38,7 +38,7 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 - `useAndroidBack.ts` — hook 接 `getCurrentWindow().onCloseRequested`,Android-only,canGoBack=true 時 preventDefault + pop,否則放系統關 app。Tauri 2 Android hardware back 對映行為待實機驗
 - `HostListScreen.tsx` — 卡片式 host list,header 有 `⟳ All`(`useRefreshAll` = captureAll)+ `+ Host`;每 row 含 [✏] 進 edit form。tap row 進 SessionList
 - `AndroidHostFormScreen.tsx` — 全屏 host form,取代 desktop dialog 的 modal pattern,用原生 `<input>`/`<select>` 配 inputMode/autoCapitalize/autoCorrect=off。共用 useCreate/Update/Delete/TestConnection。Edit mode 下方紅色「刪除這台 host」按鈕走 `window.confirm` + `useDeleteHost`
-- `SessionListScreen.tsx` — host 的 tmux session list,首行固定 ⚡ shell synthetic row。header `⟳` 同時 refetch sessions + captureHost(三層 refresh 中層)。tap → SessionScreen
+- `SessionListScreen.tsx` — host 的 tmux session list,首行固定 ⚡ shell synthetic row。header `⟳` 同時 refetch sessions + captureHost(三層 refresh 中層)。tap → SessionScreen。每 row 右側固定 ✏ rename + 🗑 kill 按鈕(走 `useKillSession` / `useRenameSession`,行動端不用 hover 改 always-visible)
 - `SessionScreen.tsx` — `mode: 'capture' | 'attach'` 切。`target.kind === 'shell'` 強制 attach(shell 無 capture)
   - **Capture mode**(M2c)— xterm readonly(font 13、scrollback 5000)+ `captureSession` on mount + `capture-updated:<host>:<session>` listen + 右上 [🔄] per-session refresh + `QuickKeyBar` + 一行文字 input + Send(send_message literal=true, send_enter=true)
   - **Attach mode**(M2d)— `AttachView` 內嵌。`attachSession` / `attachShell`(shell target)on mount,xterm(font 12、scrollback 20000)接 `attach-output-<id>` event,**strip alt-screen toggle**(對齊 desktop 設計,把 tmux 重畫推進 normal-buffer scrollback)。`attach-closed-<id>` → onBack。`writeToSession` 在 ModifierBar 按鍵 / line input Send 時送 raw bytes。Cleanup detach + clear xterm
@@ -53,7 +53,7 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 - `lib.rs` — Tauri builder 註冊,setup hook 開 sqlx pool + AttachRegistry,invoke_handler 列所有 commands
 - `commands.rs` — host CRUD + test_connection + import_private_key(M1b)
 - `hosts.rs` — `Host` / `HostForm` struct + `Session` + `HostConnectionStatus` + sqlx pool 開啟 + apply_schema + CRUD
-- `sessions.rs` — `list_sessions` / `host_status` Tauri commands + 共用 helpers `read_password_for` / `build_auth` / `port_u16` / `parse_sessions` / `list_sessions_for` (pub(crate),capture/attach/messaging 共用)
+- `sessions.rs` — `list_sessions` / `host_status` / `kill_session` / `rename_session`(SPEC §6.6 + session-level rename UX)Tauri commands + 共用 helpers `read_password_for` / `build_auth` / `port_u16` / `parse_sessions` / `list_sessions_for` (pub(crate),capture/attach/messaging 共用)+ 內部 `run_tmux_control` / `shell_quote`
 - `capture.rs` — `capture_session` / `capture_host` / `capture_all`(M1d 三層 refresh)。`capture_host_inner` 一個 host 一條 SSH 跑多 channel(`Semaphore(3)`,SPEC §9.2),emit `capture-updated:<host_id>:<session_name>` event,UPSERT `capture_cache`
 - `attach.rs` — `attach_session` / `attach_shell` / `write_to_session` / `resize_session` / `detach_session`(M1f + D-14)。`AttachRegistry: Mutex<HashMap<String, AttachHandle>>` 存 attach 狀態,reader task 把 PTY 輸出 emit `attach-output-<id>`,結束 emit `attach-closed-<id>`
 - `messaging.rs` — `send_message(host, session, payload, send_enter, literal)`(M1e + D-12),走 `tmux send-keys` literal 或 named-key
@@ -156,4 +156,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-14(M2e release signing config + 回前景 capture auto-refresh,EPIC-002 / ISSUE-010)*
+*Last updated: 2026-05-24(session-level kill + rename tree row UX,SPEC §6.6 + rename 屬同類 UX 但 SPEC 未明列)*
