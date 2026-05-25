@@ -13,9 +13,11 @@
 - `5eeabc6` M2d:AttachView 雙向 PTY + line buffer + ModifierBar 22 鍵 + CTRL sticky
 - `8e12f96` M2e:`app/build.gradle.kts` release signing + `key.properties.example`、capture 回前景 auto-refresh(`visibilitychange`),詳 D-16
 
-**M2 polish — 實機回報修正(2026-05-20 / 05-22)**
+**M2 polish — 實機回報修正(2026-05-20 / 05-22 / 05-24 / 05-25)**
 - `9aa991c` D-17:軟鍵盤 footer + stream mode parity + ⏎ 快速鍵
-- D-18(待 commit):Android 系統列 safe-area — header 不再被狀態列蓋;Android secret 後端 — keyring 無 Android backend,改存 app 私有檔
+- `e9b0974` D-18:Android 系統列 safe-area — header 不再被狀態列蓋;Android secret 後端 — keyring 無 Android backend,改存 app 私有檔
+- `dc582b4` D-19:session-level kill + rename(tree row UX,desktop hover / Android 固定)
+- D-20(待 commit):Line/Stream toggle 拿掉,改 XShell 風格 multi-line paste guard(desktop + Android 都走 stream)
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
@@ -306,6 +308,75 @@ Tauri Android Studio project,含 Gradle config(build.gradle.kts / settings.gradl
 - 已知小坑:stream mode 下 ModifierBar 的 CTRL sticky 失效(它靠攔 line textarea 的 keydown,stream 沒 textarea)。直送鍵 ESC/^C/方向鍵走 `writeRaw` 不受影響。切到 stream 時自動清掉 sticky 高亮。要修得改 ModifierBar prop,留 follow-up
 
 `tsc --noEmit` 過。專案沒設定 eslint(CLAUDE.md 寫了但 root 無 config),無法跑 lint。
+
+---
+
+### 2026-05-25 — D-20 拿掉 Line/Stream toggle,改 multi-line paste guard
+
+**動機(owner 拍板)**
+- D-11 / D-17 留下的 Line / Stream toggle,owner 用下來覺得「多餘又複雜」。希望對齊
+  XShell:輸入永遠 raw stream,只在偵測到**多行貼上**時彈 dialog 讓 user
+  review/edit 再決定送不送
+- CLAUDE.md 紅線「動 SPEC 描述的核心 UX(尤其輸入相關)」 → 動之前先三選一拍板:
+  1. scope: **desktop + Android 一起**
+  2. 多行門檻: **≥3 行(含 ≥2 個換行)**
+  3. Android 底下 textarea: **也拿掉,改點 xterm 直打**
+
+**SPEC 對應**
+- 偏離 SPEC §3.5(input modes)+ §7.3(line buffer 流程)+ §9.1(line buffer
+  spike)。D-11 已是預設 stream 的偏離,D-20 進一步把 line mode 整支拔掉
+- SPEC 暫不直接動,等 M3 polish 一次整理(對齊 D-10 / D-11 / D-12 / D-14 處理方式)
+
+**Backend** 沒動。純 frontend。
+
+**新檔**
+- `src/components/PasteConfirmDialog.tsx` — modal,textarea 可編輯;顯示行數/字數;
+  Esc / 點 backdrop / 取消鈕 = 丟棄;貼上鈕 = 整段送進 PTY
+- `src/components/usePasteGuard.ts` — 抓 xterm 的 `.xterm-helper-textarea`
+  (term.open() 之後 xterm.js 注入的隱藏 textarea),`addEventListener('paste',
+  handler, true)` 在 **capture phase** 跑,比 xterm 內建 paste handler 早;
+  多行才 `preventDefault + stopImmediatePropagation` 攔下塞 React state,
+  少於 threshold 行不動,xterm 原生 paste 走完
+
+**Desktop(`SessionPanel.tsx`)**
+- 刪 `LineBufferInput.tsx`
+- 刪 `InputMode` type、`inputMode` state、`inputModeRef`、`InputModeToggle` 元件
+- attach 中 `xterm.disableStdin = false` 恆開、`term.onData` 一律送 PTY
+- header 拿掉 Line/Stream toggle;footer 拿掉 Line 模式的 textarea 與 Stream
+  模式的琥珀警告。新增 `<PasteConfirmDialog>` 接 `usePasteGuard`
+
+**Android(`SessionScreen.tsx`)**
+- 拿掉 SessionScreen header 的 `InputModeToggle`
+- AttachView 拿掉 line-mode 底下 textarea(`buffer` / `sendBuffer` /
+  `handleKeyDown` 等全砍)
+- **CTRL sticky 改攔 xterm**:原本攔 line textarea 的 keydown,textarea
+  沒了就改 `term.attachCustomKeyEventHandler` — sticky 亮時下一個 a-zA-Z
+  keydown 被 wrap 成 raw 0x01..0x1a 送 PTY,回傳 `false` 不讓 xterm 也送
+  裸字母。`ctrlStickyRef` / `writeRawRef` 兩個 ref 接 state,handler 註冊
+  一次即可
+- terminal 容器加 `onClick` → focus xterm helper textarea → Android 軟鍵盤
+  跳出來(避免 user 不知道要先 focus xterm 才能打字)
+- `init disableStdin` 從 true 改 false(attach 永遠雙向)
+- D-17 留下的「stream 下 ModifierBar CTRL sticky 失效」follow-up 同時解決
+
+**設計上的取捨**
+- Owner 接受「stream 模式 colony 風險回來」這個 trade-off。比起 line mode 切來切去,
+  XShell 那種多行 paste 攔下 dialog 抓到絕大多數真正的誤送風險(整段 prompt /
+  整個 script);單行誤打仍可能送出,但本來就在 vim/less 都會發生,user 對 stream
+  有預期
+- threshold 用 ≥2 個 `\n`(= ≥3 行):貼一行 + 末尾換行不會觸發 dialog,日常複製
+  command 流暢；3 行以上幾乎一定是「想多看一下」的內容
+- Dialog 不卡 xterm 的單行 paste(< threshold 行的 paste 還是走 xterm 原生路徑)
+- ModifierBar 上的「⏎」按鈕(D-17 加的)留著 — stream 下也有用(空 buffer 按
+  Enter 確認選單)
+
+**未驗(只跑 `tsc --noEmit` + `vite build` 過,UI 沒實機驗)**
+- Desktop:單行 paste 流暢、多行 paste 彈 dialog、編輯後送出正確、Esc 取消
+- Android:點 xterm 軟鍵盤跳出來、ASCII 字直送 PTY、CTRL+letter sticky、
+  從手機 IME 觸發 paste 是否走 DOM paste event(理論上應該走)
+- 重 attach / 切 session 時 paste guard 重新綁 listener 沒留 leak
+
+`tsc --noEmit` ✓ / `vite build` ✓ / 沒 eslint config。
 
 ---
 

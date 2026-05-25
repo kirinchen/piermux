@@ -19,8 +19,9 @@ import type { CaptureResult, Host, Session } from "@/lib/types";
 import { api } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { relativeTime } from "@/lib/time";
-import { LineBufferInput } from "./LineBufferInput";
 import { SendBar } from "./SendBar";
+import { PasteConfirmDialog } from "@/components/PasteConfirmDialog";
+import { usePasteGuard } from "@/components/usePasteGuard";
 
 // Target = SessionPanel 顯示「什麼」:tmux session 或直連 shell(NOTES D-14)
 export type SessionPanelTarget =
@@ -35,7 +36,6 @@ type Props = {
 };
 
 type Mode = "capture" | "attach";
-type InputMode = "line" | "stream";
 
 export function SessionPanel({ host, target, onBack }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -44,26 +44,19 @@ export function SessionPanel({ host, target, onBack }: Props) {
 
   // shell 永遠 attach mode(沒有 tmux capture-pane 概念)。tmux 預設 attach(D-10)
   const [mode, setMode] = React.useState<Mode>("attach");
-  // 預設 stream(D-11);Line 是 toggle 過去的選項
-  const [inputMode, setInputMode] = React.useState<InputMode>("stream");
   const [attachId, setAttachId] = React.useState<string | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
 
   const onDataRef = React.useRef<IDisposable | null>(null);
-  const inputModeRef = React.useRef<InputMode>(inputMode);
-  React.useEffect(() => {
-    inputModeRef.current = inputMode;
-  }, [inputMode]);
 
-  // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)+ inputMode 回 stream
+  // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)
   // targetId 給 effects 用 dep,穩定字串而非 union object
   const targetId =
     target.kind === "tmux" ? `tmux:${target.session.name}` : "shell";
   React.useEffect(() => {
     return () => {
       setMode("attach");
-      setInputMode("stream");
     };
   }, [host.id, targetId]);
 
@@ -144,13 +137,12 @@ export function SessionPanel({ host, target, onBack }: Props) {
     return () => disp.dispose();
   }, [mode, attachId]);
 
-  // xterm.disableStdin 跟 mode + inputMode 走
+  // xterm.disableStdin 跟 mode 走(D-20:Line/Stream toggle 拿掉後永遠 stream)
   React.useEffect(() => {
     const term = xtermRef.current;
     if (!term) return;
-    const enabled = mode === "attach" && inputMode === "stream";
-    term.options.disableStdin = !enabled;
-  }, [mode, inputMode]);
+    term.options.disableStdin = mode !== "attach";
+  }, [mode]);
 
   // Capture 模式 — 只 tmux target 適用,shell 不該進這
   React.useEffect(() => {
@@ -266,7 +258,6 @@ export function SessionPanel({ host, target, onBack }: Props) {
         });
 
         const disp = term.onData((data) => {
-          if (inputModeRef.current !== "stream") return;
           if (aid) {
             api.writeToSession(aid, data).catch((err) => {
               console.warn("[SessionPanel] writeToSession failed", err);
@@ -331,12 +322,18 @@ export function SessionPanel({ host, target, onBack }: Props) {
     setMode((m) => (m === "capture" ? "attach" : "capture"));
   };
 
-  const handleLineSend = (text: string) => {
-    if (!attachId) return;
-    api.writeToSession(attachId, text + "\r").catch((err) => {
-      toast.error(`Send 失敗:${String(err)}`);
-    });
-  };
+  // D-20 multi-line paste guard:attach 中 ≥3 行 paste 彈 dialog,
+  // user 編輯/檢視後才寫進 PTY(對齊 XShell)。
+  const paste = usePasteGuard({
+    containerRef,
+    enabled: mode === "attach" && attachId !== null,
+    onPaste: (text) => {
+      if (!attachId) return;
+      api.writeToSession(attachId, text).catch((err) => {
+        toast.error(`Paste 失敗:${String(err)}`);
+      });
+    },
+  });
 
   const isShell = target.kind === "shell";
   const titleIcon = isShell ? (
@@ -396,9 +393,6 @@ export function SessionPanel({ host, target, onBack }: Props) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {mode === "attach" && (
-            <InputModeToggle inputMode={inputMode} onChange={setInputMode} />
-          )}
           {mode === "capture" && target.kind === "tmux" && (
             <Button
               size="sm"
@@ -446,21 +440,16 @@ export function SessionPanel({ host, target, onBack }: Props) {
         <div ref={containerRef} className="absolute inset-0" />
       </main>
 
-      {mode === "attach" && inputMode === "line" && (
-        <LineBufferInput
-          key={attachId ?? "pending"}
-          onSend={handleLineSend}
-          disabled={!attachId}
-        />
-      )}
-      {mode === "attach" && inputMode === "stream" && (
-        <footer className="border-t border-border bg-amber-500/10 px-4 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-          ⚠ Stream mode — 字元即時送(像 vim / less / 互動 prompt)。AI agent
-          對話建議切回 Line mode 避免「打到一半送出去」。
-        </footer>
-      )}
       {mode === "capture" && target.kind === "tmux" && (
         <SendBar host={host} session={target.session} />
+      )}
+
+      {paste.pending !== null && (
+        <PasteConfirmDialog
+          initialText={paste.pending}
+          onConfirm={paste.confirm}
+          onCancel={paste.cancel}
+        />
       )}
     </div>
   );
@@ -494,39 +483,3 @@ function ModeBadge({
   );
 }
 
-function InputModeToggle({
-  inputMode,
-  onChange,
-}: {
-  inputMode: InputMode;
-  onChange: (m: InputMode) => void;
-}) {
-  return (
-    <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5 text-xs">
-      <button
-        type="button"
-        onClick={() => onChange("line")}
-        className={`rounded px-2 py-0.5 font-medium transition-colors ${
-          inputMode === "line"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-        title="Line buffer:打字 → Enter 整段送出(預設,避免 colony 那種誤送)"
-      >
-        Line
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("stream")}
-        className={`rounded px-2 py-0.5 font-medium transition-colors ${
-          inputMode === "stream"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-        title="Stream:字元即時送(vim / less / 互動 prompt 用)"
-      >
-        Stream
-      </button>
-    </div>
-  );
-}

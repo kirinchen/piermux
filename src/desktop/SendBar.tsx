@@ -7,8 +7,8 @@
 //   - `/syncdesk` 文字 + Enter(literal mode)
 //   - `Stop (ESC)` ESC 按鍵(named-key,不送 Enter)
 //   - `Clear (Ctrl+L)` C-l 按鍵(named-key,不送 Enter)
-// - 顯示位置:SessionPanel capture mode 下方 footer。Attach mode 已有
-//   LineBufferInput / Stream input,SendBar 重複所以不顯示
+// - 顯示位置:SessionPanel capture mode 下方 footer。Attach mode 走 xterm
+//   雙向 PTY(D-20 後恆 stream),已可以直接打字,SendBar 重複所以不顯示
 
 import * as React from "react";
 import { Send, CornerDownLeft, Square as StopIcon, Eraser } from "lucide-react";

@@ -12,11 +12,10 @@ import type { CaptureResult } from "@/lib/types";
 import { QuickKeyBar } from "./QuickKeyBar";
 import { ModifierBar } from "./ModifierBar";
 import { useViewportHeight } from "./useViewportHeight";
+import { PasteConfirmDialog } from "@/components/PasteConfirmDialog";
+import { usePasteGuard } from "@/components/usePasteGuard";
 
 type Mode = "capture" | "attach";
-// Line:打字 → Enter 整段送(預設,IME 友善,避免 colony 那種誤送)
-// Stream:字元即時送(vim / less / 互動 prompt 用),對齊 desktop SessionPanel
-type InputMode = "line" | "stream";
 
 type Props = {
   hostId: string;
@@ -28,8 +27,6 @@ export function SessionScreen({ hostId, target, onBack }: Props) {
   const { data: hosts } = useHostsList();
   const host = hosts?.find((h) => h.id === hostId);
   const [mode, setMode] = useState<Mode>("capture");
-  // 預設 line(Android line buffer 是核心賣點);Stream 是 toggle 過去的選項
-  const [inputMode, setInputMode] = useState<InputMode>("line");
   // 軟鍵盤友善:用 visualViewport 高度當 root 高度,輸入框永遠浮在鍵盤上方
   const viewportHeight = useViewportHeight();
 
@@ -73,20 +70,12 @@ export function SessionScreen({ hostId, target, onBack }: Props) {
             />
           </div>
         )}
-        {effectiveMode === "attach" && (
-          <InputModeToggle inputMode={inputMode} onChange={setInputMode} />
-        )}
       </header>
 
       {effectiveMode === "capture" && target.kind === "tmux" ? (
         <CaptureView hostId={hostId} sessionName={target.session} />
       ) : (
-        <AttachView
-          hostId={hostId}
-          target={target}
-          inputMode={inputMode}
-          onBack={onBack}
-        />
+        <AttachView hostId={hostId} target={target} onBack={onBack} />
       )}
     </div>
   );
@@ -114,47 +103,6 @@ function ModeTab({
     >
       {label}
     </button>
-  );
-}
-
-// Line / Stream 切換 —— 對齊 desktop SessionPanel 的 InputModeToggle。
-// Stream 用琥珀色提示「字元即時送」要小心(會「打到一半送出去」)。
-function InputModeToggle({
-  inputMode,
-  onChange,
-}: {
-  inputMode: InputMode;
-  onChange: (m: InputMode) => void;
-}) {
-  return (
-    <div className="flex shrink-0 overflow-hidden rounded-md border border-zinc-700">
-      <button
-        type="button"
-        onClick={() => onChange("line")}
-        title="Line buffer:打字 → Enter 整段送(IME 友善)"
-        className={
-          "px-3 py-2 text-xs font-medium " +
-          (inputMode === "line"
-            ? "bg-blue-600 text-white"
-            : "bg-zinc-900 text-zinc-300 active:bg-zinc-800")
-        }
-      >
-        Line
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("stream")}
-        title="Stream:字元即時送(vim / less / 互動 prompt 用)"
-        className={
-          "px-3 py-2 text-xs font-medium " +
-          (inputMode === "stream"
-            ? "bg-amber-600 text-white"
-            : "bg-zinc-900 text-zinc-300 active:bg-zinc-800")
-        }
-      >
-        Stream
-      </button>
-    </div>
   );
 }
 
@@ -350,28 +298,27 @@ const STRIP_ALT_SCREEN_RE = /\x1b\[\?(?:1049|47|1047|1048)[hl]/g;
 function AttachView({
   hostId,
   target,
-  inputMode,
   onBack,
 }: {
   hostId: string;
   target: AndroidTarget;
-  inputMode: InputMode;
   onBack: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const onDataRef = useRef<IDisposable | null>(null);
   const [attachId, setAttachId] = useState<string | null>(null);
-  const [buffer, setBuffer] = useState("");
   const [ctrlSticky, setCtrlSticky] = useState(false);
 
-  // inputMode 給 attach effect 內的 onData handler 當 dep 用,避免重 attach
-  const inputModeRef = useRef<InputMode>(inputMode);
+  // CTRL sticky 攔 xterm keydown(D-20:line textarea 拿掉後改攔 xterm),
+  // 用 ref 接 state 讓 handler 不必重綁
+  const ctrlStickyRef = useRef(ctrlSticky);
   useEffect(() => {
-    inputModeRef.current = inputMode;
-  }, [inputMode]);
+    ctrlStickyRef.current = ctrlSticky;
+  }, [ctrlSticky]);
+
+  const writeRawRef = useRef<(data: string) => void>(() => {});
 
   // xterm 初始化(只一次)
   useEffect(() => {
@@ -383,7 +330,8 @@ function AttachView({
       lineHeight: 1.2,
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
-      disableStdin: true,
+      // D-20:Line/Stream toggle 拿掉後 attach 永遠雙向 → stdin 預設開
+      disableStdin: false,
       scrollback: 20000,
     });
     const fit = new FitAddon();
@@ -391,6 +339,21 @@ function AttachView({
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
+
+    // CTRL sticky:亮燈時下一個 a-zA-Z keydown 被 wrap 成 Ctrl+letter raw byte
+    // 後 return false 不交給 xterm,避免裸字母也被送進去
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      if (!ctrlStickyRef.current) return true;
+      if (e.key.length !== 1 || !/^[a-zA-Z]$/.test(e.key)) return true;
+      e.preventDefault();
+      const letter = e.key.toLowerCase();
+      const code = letter.charCodeAt(0) - 0x60; // a=1, b=2, ..., z=26
+      writeRawRef.current(String.fromCharCode(code));
+      setCtrlSticky(false);
+      return false;
+    });
+
     requestAnimationFrame(() => {
       try {
         fit.fit();
@@ -404,15 +367,6 @@ function AttachView({
       fitRef.current = null;
     };
   }, []);
-
-  // Stream → xterm 直接收鍵盤;Line → 關 stdin,輸入交給下方 textarea。
-  // 放在 init effect 之後,確保 term 已建立(重進 attach 時 inputMode 可能已是 stream)。
-  // 切到 stream 時順手清掉 Ctrl sticky(stream 沒 textarea 可攔)。
-  useEffect(() => {
-    const term = xtermRef.current;
-    if (term) term.options.disableStdin = inputMode !== "stream";
-    if (inputMode === "stream") setCtrlSticky(false);
-  }, [inputMode]);
 
   // 容器 resize + soft keyboard 收放 → visualViewport 觸發
   useEffect(() => {
@@ -488,9 +442,8 @@ function AttachView({
           onBack();
         });
 
-        // Stream mode:xterm 收到的鍵盤輸入直接打進 PTY(對齊 desktop)
+        // xterm 鍵盤輸入 → 直送 PTY(D-20:Line/Stream toggle 拿掉後恆 stream)
         const disp = term.onData((data) => {
-          if (inputModeRef.current !== "stream") return;
           if (aid) {
             api.writeToSession(aid, data).catch((err) => {
               console.warn("[AttachView] writeToSession failed", err);
@@ -527,35 +480,29 @@ function AttachView({
       toast.error(`送失敗:${String(err)}`);
     });
   };
+  // Effect 內 / CTRL sticky handler 經由 ref 拿最新 writeRaw
+  useEffect(() => {
+    writeRawRef.current = writeRaw;
+  });
 
-  const sendBuffer = () => {
-    if (!attachId || buffer.length === 0) return;
-    writeRaw(buffer + "\r");
-    setBuffer("");
-    requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.nativeEvent.isComposing) return;
-    // Ctrl sticky:下一個 a-zA-Z 直接 wrap 成 Ctrl+letter raw byte
-    if (ctrlSticky && e.key.length === 1 && /^[a-zA-Z]$/.test(e.key)) {
-      e.preventDefault();
-      const letter = e.key.toLowerCase();
-      const code = letter.charCodeAt(0) - 0x60; // a=1, b=2, ..., z=26
-      writeRaw(String.fromCharCode(code));
-      setCtrlSticky(false);
-      return;
-    }
-    if (e.key !== "Enter") return;
-    // Shift+Enter = textarea 原生換行;純 Enter 才送(對齊 chat app 慣例 + desktop)
-    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-    e.preventDefault();
-    sendBuffer();
-  };
+  // D-20 multi-line paste guard:≥3 行 paste 彈 dialog,user 編輯後才送
+  const paste = usePasteGuard({
+    containerRef,
+    enabled: attachId !== null,
+    onPaste: writeRaw,
+  });
 
   return (
     <>
-      <div className="relative flex-1 bg-[#0a0a0a]">
+      <div
+        className="relative flex-1 bg-[#0a0a0a]"
+        onClick={() => {
+          // 點 terminal 區域 → focus xterm helper textarea → 軟鍵盤跳出來
+          containerRef.current
+            ?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")
+            ?.focus();
+        }}
+      >
         <div ref={containerRef} className="absolute inset-0" />
       </div>
 
@@ -566,38 +513,12 @@ function AttachView({
         onSendBytes={writeRaw}
       />
 
-      {inputMode === "stream" ? (
-        <footer className="border-t border-zinc-800 bg-amber-500/10 px-3 py-2 text-xs leading-snug text-amber-300">
-          ⚠ Stream mode — 點終端機打字會即時送出(vim / less / 互動 prompt
-          用)。打 AI agent 對話建議切回 Line,避免「打到一半送出去」。
-        </footer>
-      ) : (
-        <div className="flex items-end gap-2 border-t border-zinc-800 bg-zinc-950 px-2 py-2">
-          <textarea
-            ref={inputRef}
-            value={buffer}
-            onChange={(e) => setBuffer(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={!attachId}
-            rows={2}
-            placeholder={
-              ctrlSticky
-                ? "下個字母會送 Ctrl+letter"
-                : "打字 → Enter 整段送(IME 友善)"
-            }
-            className="flex-1 resize-none rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-base text-zinc-100 placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none disabled:opacity-50"
-            autoCapitalize="none"
-            autoCorrect="off"
-          />
-          <button
-            type="button"
-            onClick={sendBuffer}
-            disabled={!attachId || buffer.length === 0}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white active:bg-blue-700 disabled:opacity-50"
-          >
-            Send
-          </button>
-        </div>
+      {paste.pending !== null && (
+        <PasteConfirmDialog
+          initialText={paste.pending}
+          onConfirm={paste.confirm}
+          onCancel={paste.cancel}
+        />
       )}
     </>
   );
