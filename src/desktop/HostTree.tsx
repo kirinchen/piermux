@@ -22,6 +22,7 @@ import {
   useHostStatus,
   useKillSession,
   useRenameSession,
+  useNewSession,
 } from "@/hooks/useSessions";
 import { useRefreshHost } from "@/hooks/useCapture";
 import { api } from "@/lib/tauri";
@@ -162,6 +163,7 @@ function HostRow({
   const status = useHostStatus(host.id);
   const sessions = useSessions(host.id, expanded);
   const refreshHost = useRefreshHost();
+  const newSession = useNewSession();
 
   const isHostSelected =
     selection?.kind === "host" && selection.host.id === host.id;
@@ -178,6 +180,21 @@ function HostRow({
       );
     } catch (err) {
       toast.error(`${host.display_name} refresh 失敗:${String(err)}`);
+    }
+  };
+
+  const handleNewSession = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const input = window.prompt(`新 tmux session 名稱(${host.display_name}):`, "");
+    if (input == null) return;
+    const name = input.trim();
+    if (name === "") return;
+    try {
+      await newSession.mutateAsync({ hostId: host.id, sessionName: name });
+      toast.success(`已建立 session:${name} @ ${host.display_name}`);
+      if (!expanded) onToggle();
+    } catch (err) {
+      toast.error(`新增 session 失敗:${String(err)}`);
     }
   };
 
@@ -240,6 +257,20 @@ function HostRow({
         </button>
 
         <div className="hidden gap-0.5 group-hover:flex">
+          <button
+            type="button"
+            onClick={handleNewSession}
+            disabled={newSession.isPending}
+            className="rounded p-1 text-muted-foreground hover:bg-background disabled:opacity-50"
+            title="新增 tmux session"
+            aria-label="new tmux session"
+          >
+            {newSession.isPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" />
+            )}
+          </button>
           <button
             type="button"
             onClick={handleRefreshHost}

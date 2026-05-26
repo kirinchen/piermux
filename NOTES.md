@@ -18,6 +18,7 @@
 - `e9b0974` D-18:Android 系統列 safe-area — header 不再被狀態列蓋;Android secret 後端 — keyring 無 Android backend,改存 app 私有檔
 - `dc582b4` D-19:session-level kill + rename(tree row UX,desktop hover / Android 固定)
 - D-20(待 commit):Line/Stream toggle 拿掉,改 XShell 風格 multi-line paste guard(desktop + Android 都走 stream)
+- D-21(待 commit):tree host row 加 `+` 新增 tmux session — backend `new_session` 走 `tmux new-session -d -s <name>`(detached);desktop hover icon、Android header 各一顆;命名 validation 同 rename(非空、不含 `:` `.` 空白)
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**

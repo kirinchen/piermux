@@ -24,11 +24,13 @@ export const api = {
     invoke<Session[]>("list_sessions", { hostId }),
   hostStatus: (hostId: string) =>
     invoke<HostConnectionStatus>("host_status", { hostId }),
-  // SPEC §6.6 kill_session + rename(tree view session-level UX)
+  // SPEC §6.6 kill_session + rename + new(tree view session-level UX)
   killSession: (hostId: string, sessionName: string) =>
     invoke<void>("kill_session", { hostId, sessionName }),
   renameSession: (hostId: string, sessionName: string, newName: string) =>
     invoke<void>("rename_session", { hostId, sessionName, newName }),
+  newSession: (hostId: string, sessionName: string) =>
+    invoke<void>("new_session", { hostId, sessionName }),
   // M1d — capture(三層 refresh,SPEC §3.3 / §6.3)
   captureSession: (hostId: string, sessionName: string) =>
     invoke<CaptureResult>("capture_session", { hostId, sessionName }),

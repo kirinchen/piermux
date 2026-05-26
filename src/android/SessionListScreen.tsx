@@ -4,6 +4,7 @@ import {
   useSessions,
   useKillSession,
   useRenameSession,
+  useNewSession,
 } from "@/hooks/useSessions";
 import { useHostsList } from "@/hooks/useHosts";
 import { useRefreshHost } from "@/hooks/useCapture";
@@ -22,12 +23,26 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
   const { data: sessions, isLoading, error, refetch, isFetching } =
     useSessions(hostId);
   const refreshHost = useRefreshHost();
+  const newSession = useNewSession();
 
   const handleRefresh = async () => {
     try {
       await Promise.all([refetch(), refreshHost.mutateAsync(hostId)]);
     } catch (err) {
       toast.error(`refresh 失敗:${String(err)}`);
+    }
+  };
+
+  const handleNew = async () => {
+    const input = window.prompt("新 tmux session 名稱:", "");
+    if (input == null) return;
+    const name = input.trim();
+    if (name === "") return;
+    try {
+      await newSession.mutateAsync({ hostId, sessionName: name });
+      toast.success(`已建立 session:${name}`);
+    } catch (err) {
+      toast.error(`新增 session 失敗:${String(err)}`);
     }
   };
 
@@ -51,6 +66,16 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
             </div>
           )}
         </div>
+        <button
+          type="button"
+          onClick={handleNew}
+          disabled={newSession.isPending}
+          className="rounded-md bg-zinc-800 px-3 py-2 text-base font-semibold active:bg-zinc-700 disabled:opacity-50"
+          aria-label="new tmux session"
+          title="新增 tmux session"
+        >
+          {newSession.isPending ? "…" : "+"}
+        </button>
         <button
           type="button"
           onClick={handleRefresh}

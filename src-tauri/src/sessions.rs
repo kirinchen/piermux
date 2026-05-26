@@ -71,6 +71,31 @@ pub async fn kill_session(
 }
 
 #[tauri::command]
+pub async fn new_session(
+    pool: State<'_, SqlitePool>,
+    host_id: String,
+    session_name: String,
+) -> Result<(), String> {
+    let session_name = session_name.trim();
+    if session_name.is_empty() {
+        return Err("session name cannot be empty".into());
+    }
+    if session_name.contains([':', '.', ' ']) {
+        return Err("session name cannot contain ':', '.' or whitespace".into());
+    }
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    // -d:detached(不要 attach,我們只是建出來);-s:session name
+    let cmd = format!("tmux new-session -d -s {}", shell_quote(session_name));
+    run_tmux_control(pool.inner(), &host, &cmd)
+        .await
+        .with_context(|| format!("new-session '{}' on {}", session_name, host.display_name))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn rename_session(
     pool: State<'_, SqlitePool>,
     host_id: String,

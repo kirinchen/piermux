@@ -33,6 +33,17 @@ export function useKillSession() {
   });
 }
 
+export function useNewSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hostId, sessionName }: { hostId: string; sessionName: string }) =>
+      api.newSession(hostId, sessionName),
+    onSuccess: (_data, { hostId }) => {
+      qc.invalidateQueries({ queryKey: sessionsKey(hostId) });
+    },
+  });
+}
+
 export function useRenameSession() {
   const qc = useQueryClient();
   return useMutation({

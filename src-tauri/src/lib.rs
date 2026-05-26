@@ -40,9 +40,10 @@ pub fn run() {
             // M1c real(makiko exec):取代之前的 sessions_mock
             sessions::list_sessions,
             sessions::host_status,
-            // SPEC §6.6 kill_session + rename(tree view session-level)
+            // SPEC §6.6 kill_session + rename + new(tree view session-level)
             sessions::kill_session,
             sessions::rename_session,
+            sessions::new_session,
             // M1d capture(三層 refresh,SPEC §3.3 / §6.3)
             capture::capture_session,
             capture::capture_host,
