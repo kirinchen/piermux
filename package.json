@@ -1,7 +1,7 @@
 {
   "name": "piermux",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cross-platform tmux session GUI — quick attach across multiple hosts",
   "license": "MIT",
   "repository": {
