@@ -17,6 +17,10 @@ pub fn run() {
         // backend 在 setup hook 自己開 sqlx pool + apply schema(NOTES.md D-5)。
         // plugin-sql 留給 M1d 之後 frontend incremental capture_cache update 用。
         .plugin(tauri_plugin_sql::Builder::default().build())
+        // clipboard-manager: OSC 52 forwarding from remote tmux → host OS clipboard
+        // (`src/lib/osc52.ts` registers an xterm.js OSC 52 handler that calls
+        //  this plugin's writeText)
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("resolve app_data_dir");
             // Android secret 後端要知道 app 私有資料夾(desktop 走 keyring,無害)
