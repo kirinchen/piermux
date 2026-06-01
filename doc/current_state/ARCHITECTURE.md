@@ -30,6 +30,7 @@ owner: kirin
 - `hooks/useHosts.ts` / `useSessions.ts` / `useCapture.ts` — TanStack Query mutations + queries
 - `lib/tauri.ts` — Tauri invoke wrapper(所有 backend command 集中在這個 `api` object)
 - `lib/types.ts` — TS mirror 的 backend types(Host / Session / CaptureResult / HostConnectionStatus / HostForm)
+- `lib/osc52.ts` — `installOsc52Handler(term)` 給每個 xterm 掛 OSC 52 OSC handler(PR #2,2026-06-01)。收到 remote 的 `ESC]52;c;<base64>BEL`(tmux `set -g set-clipboard on` 觸發)→ `atob` → `tauri-plugin-clipboard-manager.writeText` → host OS clipboard。**Read 請求(`?` payload)直接拒絕**,capability 也只給 `clipboard-manager:allow-write-text`(雙保險)。掛點:`SessionPanel` / `CaptureCell` / `SessionScreen`(CaptureView + AttachView)四處
 
 ### Frontend — Android (`src/android/`)
 
@@ -126,7 +127,7 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 ## 4. Tech stack snapshot
 
 - **Language:** Rust 1.85 (MSRV) + TypeScript 5.8 (strict)
-- **Desktop framework:** Tauri 2.x (`tauri` 2 / `tauri-plugin-sql` 2)
+- **Desktop framework:** Tauri 2.x (`tauri` 2 / `tauri-plugin-sql` 2 / `tauri-plugin-clipboard-manager` 2.3)
 - **Frontend:** React 19 + Vite 7 + Tailwind 4(`@tailwindcss/vite`)+ TanStack Query 5 + radix-ui (dialog/label/select/slot) + sonner + lucide
 - **Terminal renderer:** `@xterm/xterm` 5 + `addon-fit` + `addon-web-links`
 - **SSH:** `makiko` 0.2.5 (D-7,SPEC §13 deviation 從 russh 換,純 Rust crypto)
@@ -156,4 +157,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-05-24(session-level kill + rename tree row UX,SPEC §6.6 + rename 屬同類 UX 但 SPEC 未明列)*
+*Last updated: 2026-06-01(PR #2 merged — OSC 52 clipboard forwarding,`src/lib/osc52.ts` + `tauri-plugin-clipboard-manager` 加入)*
