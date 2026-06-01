@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { installOsc52Handler } from "@/lib/osc52";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 
@@ -134,6 +135,8 @@ function CaptureView({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
+    installOsc52Handler(term);
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
@@ -336,6 +339,8 @@ function AttachView({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
+    installOsc52Handler(term);
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;

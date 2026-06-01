@@ -3,6 +3,7 @@ import { Terminal as XTerm, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { installOsc52Handler } from "../lib/osc52";
 import {
   Terminal as TerminalIcon,
   Zap,
@@ -85,6 +86,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
+    // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
+    installOsc52Handler(term);
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
