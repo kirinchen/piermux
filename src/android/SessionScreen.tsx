@@ -313,13 +313,19 @@ function AttachView({
   const onDataRef = useRef<IDisposable | null>(null);
   const [attachId, setAttachId] = useState<string | null>(null);
   const [ctrlSticky, setCtrlSticky] = useState(false);
+  const [altSticky, setAltSticky] = useState(false);
+  const [barCollapsed, setBarCollapsed] = useState(false);
 
-  // CTRL sticky 攔 xterm keydown(D-20:line textarea 拿掉後改攔 xterm),
+  // CTRL/ALT sticky 攔 xterm keydown(D-20:line textarea 拿掉後改攔 xterm),
   // 用 ref 接 state 讓 handler 不必重綁
   const ctrlStickyRef = useRef(ctrlSticky);
+  const altStickyRef = useRef(altSticky);
   useEffect(() => {
     ctrlStickyRef.current = ctrlSticky;
   }, [ctrlSticky]);
+  useEffect(() => {
+    altStickyRef.current = altSticky;
+  }, [altSticky]);
 
   const writeRawRef = useRef<(data: string) => void>(() => {});
 
@@ -345,17 +351,30 @@ function AttachView({
     xtermRef.current = term;
     fitRef.current = fit;
 
-    // CTRL sticky:亮燈時下一個 a-zA-Z keydown 被 wrap 成 Ctrl+letter raw byte
-    // 後 return false 不交給 xterm,避免裸字母也被送進去
+    // CTRL/ALT sticky:亮燈時下一個 a-zA-Z keydown 被 wrap 後 return false
+    // 不交給 xterm,避免裸字母也被送進去。
+    //   CTRL only: 0x01..0x1a
+    //   ALT only:  \x1b<letter>(preserve case)
+    //   CTRL+ALT:  \x1b + ctrl-byte
+    // 任一 sticky 啟動但非 a-zA-Z 按鍵 → 不攔,讓 xterm 正常處理(modifier 維持 sticky)
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
-      if (!ctrlStickyRef.current) return true;
+      const ctrlOn = ctrlStickyRef.current;
+      const altOn = altStickyRef.current;
+      if (!ctrlOn && !altOn) return true;
       if (e.key.length !== 1 || !/^[a-zA-Z]$/.test(e.key)) return true;
       e.preventDefault();
-      const letter = e.key.toLowerCase();
-      const code = letter.charCodeAt(0) - 0x60; // a=1, b=2, ..., z=26
-      writeRawRef.current(String.fromCharCode(code));
-      setCtrlSticky(false);
+      let payload = "";
+      if (ctrlOn) {
+        const code = e.key.toLowerCase().charCodeAt(0) - 0x60; // a=1..z=26
+        payload = String.fromCharCode(code);
+      } else {
+        payload = e.key; // preserve case for ALT
+      }
+      if (altOn) payload = "\x1b" + payload;
+      writeRawRef.current(payload);
+      if (ctrlOn) setCtrlSticky(false);
+      if (altOn) setAltSticky(false);
       return false;
     });
 
@@ -514,7 +533,11 @@ function AttachView({
       <ModifierBar
         disabled={!attachId}
         ctrlActive={ctrlSticky}
+        altActive={altSticky}
+        collapsed={barCollapsed}
         onToggleCtrl={() => setCtrlSticky((v) => !v)}
+        onToggleAlt={() => setAltSticky((v) => !v)}
+        onToggleCollapsed={() => setBarCollapsed((v) => !v)}
         onSendBytes={writeRaw}
       />
 

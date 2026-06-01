@@ -19,6 +19,7 @@
 - `dc582b4` D-19:session-level kill + rename(tree row UX,desktop hover / Android 固定)
 - D-20(待 commit):Line/Stream toggle 拿掉,改 XShell 風格 multi-line paste guard(desktop + Android 都走 stream)
 - D-21(待 commit):tree host row 加 `+` 新增 tmux session — backend `new_session` 走 `tmux new-session -d -s <name>`(detached);desktop hover icon、Android header 各一顆;命名 validation 同 rename(非空、不含 `:` `.` 空白)
+- D-22(待 commit):Android `ModifierBar` 2-row 9-col grid + ALT sticky + 🎹 收合 — 鍵集照實機截圖整套換掉(刪 `^C/^D/^L/^Z/^R/^U/⏎/~/\`/</>/[/]`,加 `HOME/END/PGUP/PGDN/ALT/FN/🎹`)。ALT 走 `\x1b<letter>` ESC 前綴,跟 CTRL 同 keydown handler 攔(兩者皆亮 → `\x1b` + ctrl-byte);非 a-zA-Z 按鍵不攔讓 modifier 維持 sticky。FN 先佔位 onClick warn 不送 byte(待 layer 設計)。🎹 切 collapsed state,bar 縮成右下浮動小 icon
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
