@@ -47,7 +47,7 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
   - Ctrl sticky:tap CTRL → line input keydown 攔截下個 a-zA-Z,wrap 成 Ctrl+letter raw byte(0x01..0x1a),CTRL 自動 deactivate
   - 軟鍵盤收放:`window.visualViewport` resize event 也 refit(`ResizeObserver` 在 viewport 縮放有時不觸發)
 - `QuickKeyBar.tsx` — JuiceSSH 風橫滾 19 鍵 capture bar。每鍵 `{label, payload, literal}`,走 `send_message`(literal=false 走 tmux send-keys named-key:Tab/Escape/C-c/Up;literal=true 走字面 / - | ~ \` < > [ ])
-- `ModifierBar.tsx` — Attach mode 對應 bar,但 payload 是 raw bytes 走 `writeToSession`(不過 tmux)。CTRL 是 sticky toggle 給 line input 攔(見上)。21 個固定鍵 + CTRL,涵蓋 TAB/ESC/^C/^D/^L/^Z/^R/^U/↑↓←→/字面符號
+- `ModifierBar.tsx` — Attach mode 對應 bar,payload raw bytes 走 `writeToSession`(不過 tmux)。**D-22(2026-06-01)2-row 9-col grid layout** 取代原本單列橫滾。鍵集:R1 = ESC / `|` `-` HOME ↑ END PGUP FN;R2 = TAB CTRL ALT ← ↓ → PGDN _ 🎹。**Sticky modifiers**:CTRL + ALT 點亮後 xterm `attachCustomKeyEventHandler` 攔下一個 a-zA-Z keydown wrap 成 raw byte(CTRL: `0x01..0x1a`;ALT: `\x1b<letter>` ESC 前綴;兩者皆亮:`\x1b` + ctrl-byte),非 a-zA-Z 不攔讓 modifier 維持 sticky。FN 先佔位 onClick console.warn 不送 byte。🎹 收合整條 bar 成右下浮動小 icon
 
 ### Backend (`src-tauri/src/`)
 
@@ -157,4 +157,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-06-01(PR #2 merged — OSC 52 clipboard forwarding,`src/lib/osc52.ts` + `tauri-plugin-clipboard-manager` 加入)*
+*Last updated: 2026-06-01(D-22 ModifierBar 2-row grid + ALT sticky + 🎹 collapse;PR #2 merged — OSC 52 clipboard forwarding,`src/lib/osc52.ts` + `tauri-plugin-clipboard-manager` 加入)*
