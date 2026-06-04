@@ -293,11 +293,6 @@ function CaptureView({
   );
 }
 
-// 對齊 desktop SessionPanel.tsx attach effect:用 strip-alt-screen 法把
-// tmux 所有輸出推進 xterm 的 normal-buffer scrollback,不在 alt-screen 重畫,
-// scrollback 滾得到歷史。Re: 換 Ctrl+letter 為 raw byte 1-26(0x01..0x1a)。
-const STRIP_ALT_SCREEN_RE = /\x1b\[\?(?:1049|47|1047|1048)[hl]/g;
-
 function AttachView({
   hostId,
   target,
@@ -459,7 +454,9 @@ function AttachView({
         unlistenOutput = await listen<string>(`attach-output-${aid}`, (e) => {
           const t = xtermRef.current;
           if (!t) return;
-          t.write(e.payload.replace(STRIP_ALT_SCREEN_RE, ""));
+          // 不再 strip alt-screen — 讓 xterm 正常用 alternate buffer,tmux 絕對
+          // 游標定位才對得上(舊 Bug 2/3:strip 後 normal buffer 座標 desync)。
+          t.write(e.payload);
         });
         unlistenClosed = await listen(`attach-closed-${aid}`, () => {
           toast.message("Attach 已關閉(server 端 EOF / exit)");

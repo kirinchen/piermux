@@ -21,6 +21,11 @@
 - D-21(待 commit):tree host row 加 `+` 新增 tmux session — backend `new_session` 走 `tmux new-session -d -s <name>`(detached);desktop hover icon、Android header 各一顆;命名 validation 同 rename(非空、不含 `:` `.` 空白)
 - D-22(待 commit):Android `ModifierBar` 2-row 9-col grid + ALT sticky + 🎹 收合 — 鍵集照實機截圖整套換掉(刪 `^C/^D/^L/^Z/^R/^U/⏎/~/\`/</>/[/]`,加 `HOME/END/PGUP/PGDN/ALT/FN/🎹`)。ALT 走 `\x1b<letter>` ESC 前綴,跟 CTRL 同 keydown handler 攔(兩者皆亮 → `\x1b` + ctrl-byte);非 a-zA-Z 按鍵不攔讓 modifier 維持 sticky。FN 先佔位 onClick warn 不送 byte(待 layer 設計)。🎹 切 collapsed state,bar 縮成右下浮動小 icon
 
+- D-23(2026-06-04,owner 回報 3 個 OSC 52 / 輸入 bug):
+  1. **OSC 52 剪貼簿亂碼** — `src/lib/osc52.ts` 用 `atob(payload)` 後直接當文字。`atob` 只還原 byte(Latin-1 字串),tmux yank 中文時裝的是 UTF-8 bytes 的 base64 → 亂碼。改成 `atob` → `Uint8Array` → `TextDecoder().decode()` 還原 UTF-8。
+  2. **第一個字彙一直重複 + 3. 輸入變空白後重播前面一大段** — 同一根因:attach 時 strip 掉 tmux 的 `\x1b[?1049h/l`(alt-screen 切換),強迫 xterm 留 normal buffer。但 tmux 用絕對游標定位重畫,xterm 在 normal buffer 時座標 desync → 重複片段(Bug 2)、shell 行重畫落錯位置 → 輸入錯亂(Bug 3)。**owner 拍板:不再 strip**,讓 xterm 正常用 alternate buffer。代價:拿掉「滾主 xterm 看 attach 歷史」,改用 tmux copy-mode / capture mode。desktop `SessionPanel.tsx`(順手移除已無意義的 alt-buffer wheel 安全網)+ Android `SessionScreen.tsx`(移除 `STRIP_ALT_SCREEN_RE`)同步。
+  - **未實機驗** — 等 owner 在真環境確認 Bug 2/3 真的是 alt-screen desync 造成、修後消失。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
