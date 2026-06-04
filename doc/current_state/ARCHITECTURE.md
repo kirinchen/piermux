@@ -22,7 +22,7 @@ owner: kirin
 - `desktop/HostCaptureGrid.tsx` — 單 host capture grid view(host name click 進)
 - `desktop/MultiHostCaptureGrid.tsx` — 多 host 並列(checkbox 勾 ≥1 進);內部 `HostSection` per host
 - `desktop/CaptureCell.tsx` — 一個 session 的 mini xterm capture cell,grid 用
-- `desktop/SessionPanel.tsx` — 單一 target panel,target = `{kind:'tmux',session}` 或 `{kind:'shell'}`。內部 `mode: 'capture'|'attach'` + `inputMode: 'line'|'stream'`,attach 時 xterm 啟用 stdin。Attach mode 下對 `attach-output-<id>` payload strip 掉 `\x1b[?(1049|47|1047|1048)[hl]` → xterm 永遠留在 normal buffer → scrollback(20000 行)生效 → 滾輪 / scrollbar 直接捲這次 attach 的輸出。Detach / mode 切換時 `term.clear()` 清掉
+- `desktop/SessionPanel.tsx` — 單一 target panel,target = `{kind:'tmux',session}` 或 `{kind:'shell'}`。內部 `mode: 'capture'|'attach'`,attach 時 xterm 啟用 stdin。Attach mode 下 `attach-output-<id>` payload **直接寫進 xterm,不動 alt-screen 切換**(2026-06-04 D-23 / Bug 2/3:先前 strip alt-screen 讓 tmux 在 normal buffer 重畫造成游標座標 desync → 重複片段 / 輸入錯亂;改成讓 xterm 正常用 alternate buffer,看歷史走 tmux copy-mode 或 capture mode)。Detach / mode 切換時 `term.clear()` 清掉
 - `desktop/LineBufferInput.tsx` — line mode 的 textarea,IME-aware Enter
 - `desktop/SendBar.tsx` — capture mode 下方一次性 send_message + quick presets
 - `desktop/HostFormDialog.tsx` — 新增 / 編輯 host
@@ -42,7 +42,7 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 - `SessionListScreen.tsx` — host 的 tmux session list,首行固定 ⚡ shell synthetic row。header `⟳` 同時 refetch sessions + captureHost(三層 refresh 中層)。tap → SessionScreen。每 row 右側固定 ✏ rename + 🗑 kill 按鈕(走 `useKillSession` / `useRenameSession`,行動端不用 hover 改 always-visible)
 - `SessionScreen.tsx` — `mode: 'capture' | 'attach'` 切。`target.kind === 'shell'` 強制 attach(shell 無 capture)
   - **Capture mode**(M2c)— xterm readonly(font 13、scrollback 5000)+ `captureSession` on mount + `capture-updated:<host>:<session>` listen + 右上 [🔄] per-session refresh + `QuickKeyBar` + 一行文字 input + Send(send_message literal=true, send_enter=true)
-  - **Attach mode**(M2d)— `AttachView` 內嵌。`attachSession` / `attachShell`(shell target)on mount,xterm(font 12、scrollback 20000)接 `attach-output-<id>` event,**strip alt-screen toggle**(對齊 desktop 設計,把 tmux 重畫推進 normal-buffer scrollback)。`attach-closed-<id>` → onBack。`writeToSession` 在 ModifierBar 按鍵 / line input Send 時送 raw bytes。Cleanup detach + clear xterm
+  - **Attach mode**(M2d)— `AttachView` 內嵌。`attachSession` / `attachShell`(shell target)on mount,xterm(font 12、scrollback 20000)接 `attach-output-<id>` event,**直接寫進 xterm 不 strip alt-screen**(對齊 desktop,2026-06-04 D-23)。`attach-closed-<id>` → onBack。`writeToSession` 在 ModifierBar 按鍵 / line input Send 時送 raw bytes。Cleanup detach + clear xterm
   - Line buffer:`<textarea>` + Send button,IME `isComposing` 護欄;Shift+Enter 換行,純 Enter 整段送(buffer + `\r`)。**核心賣點**(SPEC §1.2 / §9.1 fallback 設計)
   - Ctrl sticky:tap CTRL → line input keydown 攔截下個 a-zA-Z,wrap 成 Ctrl+letter raw byte(0x01..0x1a),CTRL 自動 deactivate
   - 軟鍵盤收放:`window.visualViewport` resize event 也 refit(`ResizeObserver` 在 viewport 縮放有時不觸發)
@@ -157,4 +157,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-06-01(D-22 ModifierBar 2-row grid + ALT sticky + 🎹 collapse;PR #2 merged — OSC 52 clipboard forwarding,`src/lib/osc52.ts` + `tauri-plugin-clipboard-manager` 加入)*
+*Last updated: 2026-06-04(D-23 修 3 個 OSC 52 / 輸入 bug:osc52 base64→UTF-8 解碼;attach 不再 strip alt-screen,讓 xterm 正常用 alternate buffer 避免游標 desync)*

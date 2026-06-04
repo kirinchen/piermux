@@ -93,18 +93,6 @@ export function SessionPanel({ host, target, onBack }: Props) {
     fitRef.current = fit;
     requestAnimationFrame(() => fit.fit());
 
-    // Wheel handler 安全網:理論上 attach 已 strip alt-screen,xterm 永遠在 normal
-    // buffer,wheel 預設行為(滾 scrollback)會生效不需要這層。但為了防禦性 — 萬一
-    // 哪個 inner app 自己送了 alt-screen toggle 沒被 strip 漏掉,這邊吞掉避免 wheel
-    // 被翻成 arrow up/down 誤觸 bash history
-    term.attachCustomWheelEventHandler((event) => {
-      if (term.buffer.active.type === "alternate") {
-        event.preventDefault();
-        return false;
-      }
-      return true;
-    });
-
     return () => {
       term.dispose();
       xtermRef.current = null;
@@ -237,16 +225,12 @@ export function SessionPanel({ host, target, onBack }: Props) {
           (e) => {
             const t = xtermRef.current;
             if (!t) return;
-            // 把 alt-screen toggle 從進來的 bytes strip 掉 → xterm 一直留在 normal
-            // buffer → scrollback(20000 行)生效 → 滾輪 / scrollbar 直接在主 xterm
-            // 滾就能看到先前內容(像 Xshell 那樣)。代價是 tmux 的 in-place 重畫
-            // 會把舊內容推進 scrollback,看起來會有重複片段,但能看到歷史比好看重要。
-            // \x1b[?1049h/l = smcup/rmcup;47/1047/1048 是 legacy alt-screen 變體
-            const cleaned = e.payload.replace(
-              /\x1b\[\?(?:1049|47|1047|1048)[hl]/g,
-              "",
-            );
-            t.write(cleaned);
+            // 直接寫進 xterm,不動 alt-screen 切換。先前 strip 掉 alt-screen
+            // (\x1b[?1049h/l 等)是想把 tmux 輸出留在 normal buffer scrollback,
+            // 但 tmux 用「絕對游標定位」重畫,xterm 在 normal buffer 時座標會
+            // desync → 重複片段 / 輸入錯亂(舊 Bug 2/3)。讓 xterm 正常用
+            // alternate buffer,座標才對得上。看歷史改用 tmux copy-mode 或 capture。
+            t.write(e.payload);
           },
         );
 

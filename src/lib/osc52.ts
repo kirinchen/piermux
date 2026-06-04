@@ -27,7 +27,12 @@ export function installOsc52Handler(term: Terminal): IDisposable {
 
     let text: string;
     try {
-      text = atob(payload);
+      // base64 → bytes → UTF-8。atob 只還原成 byte(Latin-1 字串),直接當
+      // 文字會把多 byte UTF-8(中文等)當 Latin-1 → 剪貼簿亂碼。要再用
+      // TextDecoder 把 bytes 還原成 UTF-8。
+      const binary = atob(payload);
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+      text = new TextDecoder().decode(bytes);
     } catch (e) {
       console.warn("[osc52] base64 decode failed", e);
       return false;
