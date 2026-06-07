@@ -46,9 +46,13 @@ struct AttachHandle {
     // 被 drop(makiko::Session 是 Channel 的 thin Arc handle,本身不持
     // ownership 連線)。reader task 不需要持有 — channel close 後 recv
     // 自然回 None,task 會 break out。
-    _ssh: Arc<SshSession>,
+    // scroll_session 另在這條 connection 開 exec channel 跑 tmux copy-mode。
+    ssh: Arc<SshSession>,
     session: makiko::Session,
     reader: Option<JoinHandle<()>>,
+    // tmux session name(scroll_session 組 copy-mode target 用)。
+    // shell target 沒 tmux → None,scroll 變 no-op。
+    target: Option<String>,
 }
 
 impl Drop for AttachHandle {
@@ -101,6 +105,7 @@ async fn finalize_attach(
     ssh: Arc<SshSession>,
     session: makiko::Session,
     mut sess_rx: makiko::SessionReceiver,
+    target: Option<String>,
 ) -> String {
     let attach_id = Uuid::new_v4().to_string();
     let app_clone = app.clone();
@@ -146,9 +151,10 @@ async fn finalize_attach(
     });
 
     let handle = AttachHandle {
-        _ssh: ssh,
+        ssh,
         session,
         reader: Some(reader),
+        target,
     };
 
     let mut map = registry.inner.lock().await;
@@ -192,7 +198,7 @@ pub async fn attach_session(
         .await
         .map_err(|e| format!("exec wait: {e}"))?;
 
-    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx).await)
+    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx, Some(session_name)).await)
 }
 
 /// M1.5 直連 shell(NOTES D-14):跟 attach_session 同流程,差別在 exec("tmux attach")
@@ -233,7 +239,47 @@ pub async fn attach_shell(
         .await
         .map_err(|e| format!("shell wait: {e}"))?;
 
-    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx).await)
+    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx, None).await)
+}
+
+/// 滾輪在 alt-screen attach 時的「看歷史」(NOTES D-24,取代 D-23 拿掉的 strip-alt-screen)。
+///
+/// 走 server 端 pane state(`tmux copy-mode` + `send-keys -X scroll-up/down`),
+/// 在 attach 的同一條 SSH connection 上加開 exec channel 跑 — 不碰 PTY stdin,
+/// 所以不會把 D-23 修掉的游標 desync / 輸入重播 bug 找回來,也不靠 tmux prefix /
+/// 不需 server 端 mouse on。copy-mode 是 per-pane state,會反映到 attach client →
+/// attach-output 收到重畫,前端就看到捲動後的畫面。
+///
+/// shell target(無 tmux)→ 靜默 no-op。
+#[tauri::command]
+pub async fn scroll_session(
+    registry: State<'_, AttachRegistry>,
+    session_id: String,
+    up: bool,
+    lines: u32,
+) -> Result<(), String> {
+    // clone Arc<SshSession> + target 後立刻釋放 lock,別 hold mutex 跨 await
+    let (ssh, target) = {
+        let map = registry.inner.lock().await;
+        let handle = map
+            .get(&session_id)
+            .ok_or_else(|| format!("attach session not found: {session_id}"))?;
+        match &handle.target {
+            None => return Ok(()), // shell:沒 tmux,不支援 copy-mode
+            Some(t) => (handle.ssh.clone(), t.clone()),
+        }
+    };
+
+    let lines = lines.clamp(1, 500);
+    let pane = shell_quote(&format!("{target}:0"));
+    let dir = if up { "scroll-up" } else { "scroll-down" };
+    // 先確保進 copy-mode(已在 copy-mode 時 tmux 視為 no-op,不重置卷動位置),
+    // 再送 N 次 scroll。scroll-down 滾到底 tmux 會自動退出 copy-mode。
+    let cmd = format!("tmux copy-mode -t {pane} ; tmux send-keys -t {pane} -X -N {lines} {dir}");
+    ssh.exec(&cmd)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("scroll exec: {e}"))
 }
 
 #[tauri::command]

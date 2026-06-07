@@ -50,6 +50,13 @@ export function SessionPanel({ host, target, onBack }: Props) {
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
 
   const onDataRef = React.useRef<IDisposable | null>(null);
+  // 滾輪 → tmux copy-mode 用(NOTES D-24)。attachId 是 state 會過時,wheel
+  // handler 在 init effect 註冊一次,所以走 ref 讀即時值。
+  const attachIdRef = React.useRef<string | null>(null);
+  // 節流:scrollSession in-flight 時把後續 delta 累進 pending(帶正負號,
+  // 正 = 往回捲),完成後若還有 pending 再送一次 → 最多一個在途 + 一個排隊。
+  const scrollInflightRef = React.useRef(false);
+  const scrollPendingRef = React.useRef(0);
 
   // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)
   // targetId 給 effects 用 dep,穩定字串而非 union object
@@ -92,6 +99,45 @@ export function SessionPanel({ host, target, onBack }: Props) {
     xtermRef.current = term;
     fitRef.current = fit;
     requestAnimationFrame(() => fit.fit());
+
+    // 滾輪在 alt-screen(tmux attach 的全螢幕重畫)時,xterm 預設把滾輪翻成
+    // 方向鍵 ↑/↓ 送給 inner app → 誤觸歷史選擇,且 alt buffer 沒 scrollback
+    // 根本看不到先前內容。改成吞掉預設、走 tmux copy-mode 看歷史(NOTES D-24)。
+    // normal buffer(capture mode / shell 在 normal buffer 時)維持預設滾 scrollback。
+    const flushScroll = () => {
+      const aid = attachIdRef.current;
+      const pending = scrollPendingRef.current;
+      if (!aid || pending === 0) {
+        scrollPendingRef.current = 0;
+        return;
+      }
+      scrollPendingRef.current = 0;
+      scrollInflightRef.current = true;
+      api
+        .scrollSession(aid, pending > 0, Math.min(Math.abs(pending), 500))
+        .catch((err) => console.warn("[SessionPanel] scrollSession failed", err))
+        .finally(() => {
+          scrollInflightRef.current = false;
+          if (scrollPendingRef.current !== 0) flushScroll();
+        });
+    };
+    term.attachCustomWheelEventHandler((e) => {
+      // 只在 alt-screen 接管;normal buffer 走 xterm 預設(滾自己的 scrollback)
+      if (term.buffer.active.type !== "alternate") return true;
+      if (!attachIdRef.current) return true; // 還沒 attach,別吞滾輪
+      // deltaMode 1=行、2=頁,其餘當 pixel(一格 ~100px);每 tick 捲 3 行
+      const ticks =
+        e.deltaMode === 1
+          ? e.deltaY
+          : e.deltaMode === 2
+            ? e.deltaY * 10
+            : e.deltaY / 100;
+      const lines = Math.max(1, Math.round(Math.abs(ticks))) * 3;
+      // deltaY < 0 = 滾輪往上 = 往回看歷史(pending 正向)
+      scrollPendingRef.current += e.deltaY < 0 ? lines : -lines;
+      if (!scrollInflightRef.current) flushScroll();
+      return false; // 吞掉,別讓 xterm 翻成方向鍵
+    });
 
     return () => {
       term.dispose();
@@ -219,6 +265,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
           return;
         }
         setAttachId(aid);
+        attachIdRef.current = aid;
 
         unlistenOutput = await listen<string>(
           `attach-output-${aid}`,
@@ -278,6 +325,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
       // 對齊 user 預期:歷史紀錄是 attach 期間限定,detach 後不該還在
       xtermRef.current?.clear();
       setAttachId(null);
+      attachIdRef.current = null;
+      scrollPendingRef.current = 0;
     };
   }, [mode, host.id, targetId, target, onBack]);
 

@@ -58,6 +58,7 @@ pub fn run() {
             attach::write_to_session,
             attach::resize_session,
             attach::detach_session,
+            attach::scroll_session,
             // M1e send_message(不需 attach 直接對 session 送字 / 按鍵,SPEC §3.4 / §6.4)
             messaging::send_message,
         ])

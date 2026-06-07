@@ -22,7 +22,7 @@ owner: kirin
 - `desktop/HostCaptureGrid.tsx` — 單 host capture grid view(host name click 進)
 - `desktop/MultiHostCaptureGrid.tsx` — 多 host 並列(checkbox 勾 ≥1 進);內部 `HostSection` per host
 - `desktop/CaptureCell.tsx` — 一個 session 的 mini xterm capture cell,grid 用
-- `desktop/SessionPanel.tsx` — 單一 target panel,target = `{kind:'tmux',session}` 或 `{kind:'shell'}`。內部 `mode: 'capture'|'attach'`,attach 時 xterm 啟用 stdin。Attach mode 下 `attach-output-<id>` payload **直接寫進 xterm,不動 alt-screen 切換**(2026-06-04 D-23 / Bug 2/3:先前 strip alt-screen 讓 tmux 在 normal buffer 重畫造成游標座標 desync → 重複片段 / 輸入錯亂;改成讓 xterm 正常用 alternate buffer,看歷史走 tmux copy-mode 或 capture mode)。Detach / mode 切換時 `term.clear()` 清掉
+- `desktop/SessionPanel.tsx` — 單一 target panel,target = `{kind:'tmux',session}` 或 `{kind:'shell'}`。內部 `mode: 'capture'|'attach'`,attach 時 xterm 啟用 stdin。Attach mode 下 `attach-output-<id>` payload **直接寫進 xterm,不動 alt-screen 切換**(2026-06-04 D-23 / Bug 2/3:先前 strip alt-screen 讓 tmux 在 normal buffer 重畫造成游標座標 desync → 重複片段 / 輸入錯亂;改成讓 xterm 正常用 alternate buffer,看歷史走 tmux copy-mode 或 capture mode)。**滾輪在 alt-screen 走 `attachCustomWheelEventHandler` 接管(2026-06-07 D-24)**:吞掉預設 wheel→arrow,改呼叫 `scrollSession(id, up, lines)` IPC,後端在 attach 既有 SSH 連線加開 channel 跑 `tmux copy-mode` + `send-keys -X scroll-up/down`(per-pane state → 反映到 attach client),不碰 PTY stdin / 不靠 prefix;normal buffer 維持預設滾自己 scrollback。Detach / mode 切換時 `term.clear()` 清掉
 - `desktop/LineBufferInput.tsx` — line mode 的 textarea,IME-aware Enter
 - `desktop/SendBar.tsx` — capture mode 下方一次性 send_message + quick presets
 - `desktop/HostFormDialog.tsx` — 新增 / 編輯 host
@@ -56,7 +56,7 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 - `hosts.rs` — `Host` / `HostForm` struct + `Session` + `HostConnectionStatus` + sqlx pool 開啟 + apply_schema + CRUD
 - `sessions.rs` — `list_sessions` / `host_status` / `kill_session` / `rename_session`(SPEC §6.6 + session-level rename UX)Tauri commands + 共用 helpers `read_password_for` / `build_auth` / `port_u16` / `parse_sessions` / `list_sessions_for` (pub(crate),capture/attach/messaging 共用)+ 內部 `run_tmux_control` / `shell_quote`
 - `capture.rs` — `capture_session` / `capture_host` / `capture_all`(M1d 三層 refresh)。`capture_host_inner` 一個 host 一條 SSH 跑多 channel(`Semaphore(3)`,SPEC §9.2),emit `capture-updated:<host_id>:<session_name>` event,UPSERT `capture_cache`
-- `attach.rs` — `attach_session` / `attach_shell` / `write_to_session` / `resize_session` / `detach_session`(M1f + D-14)。`AttachRegistry: Mutex<HashMap<String, AttachHandle>>` 存 attach 狀態,reader task 把 PTY 輸出 emit `attach-output-<id>`,結束 emit `attach-closed-<id>`
+- `attach.rs` — `attach_session` / `attach_shell` / `write_to_session` / `resize_session` / `detach_session` / `scroll_session`(M1f + D-14 + D-24)。`AttachRegistry: Mutex<HashMap<String, AttachHandle>>` 存 attach 狀態(含 `target: Option<String>` 供 copy-mode 用),reader task 把 PTY 輸出 emit `attach-output-<id>`,結束 emit `attach-closed-<id>`。`scroll_session`(D-24)在同一條 SSH 連線加開 exec channel 跑 `tmux copy-mode` + `send-keys -X scroll-up/down`,讓 alt-screen 滾輪能看歷史而不碰 PTY stdin;shell target(無 tmux)no-op
 - `messaging.rs` — `send_message(host, session, payload, send_enter, literal)`(M1e + D-12),走 `tmux send-keys` literal 或 named-key
 - `secret.rs` — keyring 薄 wrapper(macOS Keychain / Windows Credential Manager / Linux Secret Service via `keyring 3.6` 加 platform features,D-9)
 - `ssh.rs` — makiko 0.2.5 wrapper:`connect()` 回 `SshSession`(共用 connection)+ `SshSession::exec()` + `run_command()`(one-shot)+ `test_connection()`。Server pubkey 接受 any(M1b 起);auth 支援 password + key(Ed25519/RSA);`SshSession::client()` 暴露給 attach.rs 開 PTY channel
@@ -157,4 +157,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-06-04(D-23 修 3 個 OSC 52 / 輸入 bug:osc52 base64→UTF-8 解碼;attach 不再 strip alt-screen,讓 xterm 正常用 alternate buffer 避免游標 desync)*
+*Last updated: 2026-06-07(D-24:alt-screen 滾輪改走 `scroll_session` IPC → tmux copy-mode 看歷史,不碰 PTY stdin、不 revert D-23 的 strip 移除)*

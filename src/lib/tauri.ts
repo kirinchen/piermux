@@ -55,6 +55,10 @@ export const api = {
     invoke<void>("resize_session", { sessionId, cols, rows }),
   detachSession: (sessionId: string) =>
     invoke<void>("detach_session", { sessionId }),
+  // 滾輪在 alt-screen attach 時走 tmux copy-mode 看歷史(NOTES D-24)。
+  // up=true 往回捲、lines=這次滾幾行。shell target 後端會 no-op。
+  scrollSession: (sessionId: string, up: boolean, lines: number) =>
+    invoke<void>("scroll_session", { sessionId, up, lines }),
   // M1e — send_message(不 attach 直接送字 / 按鍵,SPEC §3.4 / §6.4)
   // literal=true → tmux send-keys -l(payload 視作 raw bytes,中文 / 特殊字 OK)
   // literal=false → tmux send-keys(payload 視作 tmux key spec,如 "Escape" / "C-l")

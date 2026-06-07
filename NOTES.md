@@ -26,6 +26,14 @@
   2. **第一個字彙一直重複 + 3. 輸入變空白後重播前面一大段** — 同一根因:attach 時 strip 掉 tmux 的 `\x1b[?1049h/l`(alt-screen 切換),強迫 xterm 留 normal buffer。但 tmux 用絕對游標定位重畫,xterm 在 normal buffer 時座標 desync → 重複片段(Bug 2)、shell 行重畫落錯位置 → 輸入錯亂(Bug 3)。**owner 拍板:不再 strip**,讓 xterm 正常用 alternate buffer。代價:拿掉「滾主 xterm 看 attach 歷史」,改用 tmux copy-mode / capture mode。desktop `SessionPanel.tsx`(順手移除已無意義的 alt-buffer wheel 安全網)+ Android `SessionScreen.tsx`(移除 `STRIP_ALT_SCREEN_RE`)同步。
   - **未實機驗** — 等 owner 在真環境確認 Bug 2/3 真的是 alt-screen desync 造成、修後消失。
 
+- D-24(2026-06-07,owner 回報 attach 滾輪沒法看歷史):
+  - **現象**:attach 在 alt-screen 時滾滑鼠滾輪 → 變成方向鍵 ↑/↓ 誤觸 inner app 歷史選擇,看不到先前畫面。owner 要「把 D-23 拿掉的『滾輪看歷史』找回來」。
+  - **衝突點**:D-23 拿掉 strip-alt-screen 正是為了修 Bug 2/3(游標 desync / 輸入重播)。直接 revert strip = 輸入 bug 回來,踩 piermux 核心賣點(輸入)。**owner 知情後拍板走 copy-mode 方案(不 revert strip)。**
+  - **作法**:新 IPC `scroll_session(id, up, lines)`(`attach.rs`)。在 attach **既有的那條 SSH connection** 上加開 exec channel 跑 `tmux copy-mode -t <s>:0 ; tmux send-keys -X -N <lines> scroll-up/down`。走 server 端 pane state → 反映到 attach client → `attach-output` 收重畫,前端看到捲動畫面。**不碰 PTY stdin**(輸入不壞)、不靠 tmux prefix、不需 server mouse on。`AttachHandle` 多存 `target: Option<String>`(shell = None → scroll no-op)。
+  - 前端 `SessionPanel.tsx` `attachCustomWheelEventHandler`:只在 `buffer.active.type === 'alternate'` 接管(吞掉預設 wheel→arrow、改呼叫 `scrollSession`);normal buffer 維持預設滾自己 scrollback。in-flight 節流(最多一個在途 + 一個排隊)避免連續滾爆 SSH channel。每 wheel tick 捲 3 行。
+  - **只動 desktop**(滑鼠滾輪)。Android 是觸控滑動、行為不同,先不動。
+  - **未實機驗** — 待 owner 確認滾輪在真 tmux session 能順順看歷史、退出 copy-mode 後輸入正常。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
