@@ -14,6 +14,7 @@ import { MultiHostCaptureGrid } from "./MultiHostCaptureGrid";
 import { HostFormDialog } from "./HostFormDialog";
 import { Button } from "@/components/ui/button";
 import { useRefreshAll } from "@/hooks/useCapture";
+import { getVersion } from "@tauri-apps/api/app";
 import type { Host, Session } from "@/lib/types";
 
 const SIDEBAR_KEY = "piermux:sidebarCollapsed";
@@ -41,6 +42,14 @@ export function HostsView() {
   }, [sidebarCollapsed]);
 
   const refreshAll = useRefreshAll();
+
+  // app 版本(讀 tauri.conf,跟 installer 一致),顯示在 header
+  const [appVersion, setAppVersion] = React.useState<string>("");
+  React.useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => {});
+  }, []);
 
   const openAdd = () => {
     setEditing(null);
@@ -107,7 +116,9 @@ export function HostsView() {
             )}
           </button>
           <div>
-            <h1 className="text-lg font-semibold leading-tight">piermux</h1>
+            <h1 className="text-lg font-semibold leading-tight">
+              piermux{appVersion ? ` v${appVersion}` : ""}
+            </h1>
             <p className="text-xs text-muted-foreground">
               跨多機 tmux session GUI · M1 desktop
             </p>
