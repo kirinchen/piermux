@@ -1,6 +1,11 @@
 schema_version: 1
 mode: development
 
+# 關掉 Stop-hook 的 session-end summary(touched docs + 違規清單)。
+# memory fan-out / review 仍照跑;其餘 mentor 功能不受影響。
+agent_behavior:
+  session_end_summary: false
+
 paths:
   spec: doc/SPEC.md
   wiki: doc/Wiki
