@@ -50,6 +50,8 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 - `QuickKeyBar.tsx` — JuiceSSH 風橫滾 19 鍵 capture bar。每鍵 `{label, payload, literal}`,走 `send_message`(literal=false 走 tmux send-keys named-key:Tab/Escape/C-c/Up;literal=true 走字面 / - | ~ \` < > [ ])。**D-25**:容器層 `onMouseDown.preventDefault` → 按快速鍵不搶 `<input>` 焦點、軟鍵盤不被收起(click / `:active` / 橫滾不受影響)
 - `ModifierBar.tsx` — Attach mode 對應 bar,payload raw bytes 走 `writeToSession`(不過 tmux)。**D-22(2026-06-01)2-row 9-col grid layout** 取代原本單列橫滾。鍵集:R1 = ESC / `|` `-` HOME ↑ END PGUP FN;R2 = TAB CTRL ALT ← ↓ → PGDN _ 🎹。**Sticky modifiers**:CTRL + ALT 點亮後 xterm `attachCustomKeyEventHandler` 攔下一個 a-zA-Z keydown wrap 成 raw byte(CTRL: `0x01..0x1a`;ALT: `\x1b<letter>` ESC 前綴;兩者皆亮:`\x1b` + ctrl-byte),非 a-zA-Z 不攔讓 modifier 維持 sticky。FN 先佔位 onClick console.warn 不送 byte。🎹 收合整條 bar 成右下浮動小 icon。**D-25**:容器層 `onMouseDown.preventDefault` → 按 modifier 不搶 xterm helper textarea 焦點、軟鍵盤不收(CTRL/ALT sticky 也才接得到下一個實體按鍵)
 
+- `useTouchScroll.ts` — **手指拖曳捲動終端(D-26,2026-06-18)**。xterm 的 `.xterm-screen`(canvas)疊在 `.xterm-viewport` 上、觸控落在 screen 不觸發原生捲動,xterm 又只把滾輪轉捲動 → 行動端拖不動畫面。此 hook 把單指垂直拖曳換算行數:**normal buffer** → `term.scrollLines()`(1:1 跟手);**alt-screen**(tmux 全螢幕)→ `onAltScreenScroll` 走 `scroll_session` tmux copy-mode(對齊 desktop 滾輪 D-24,含 inflight/pending 節流)。`touchmove` 用 `passive:false` + `preventDefault`,tap 容差(6px)內不攔以保留點擊聚焦。掛在 SessionScreen 的 capture / attach 兩個 xterm container
+
 ### Backend (`src-tauri/src/`)
 
 - `lib.rs` — Tauri builder 註冊,setup hook 開 sqlx pool + AttachRegistry,invoke_handler 列所有 commands
@@ -158,4 +160,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-06-18(D-25:Android 輸入手感 — 快速鍵/modifier bar 容器層 `onMouseDown.preventDefault` 保住軟鍵盤焦點;attach helper textarea 補 `autocomplete="off"` → `NO_SUGGESTIONS` 逐鍵輸入,中文改走 capture Send)*
+*Last updated: 2026-06-18(D-25:Android 輸入手感 — 快速鍵/modifier bar 容器層 `onMouseDown.preventDefault` 保住軟鍵盤焦點;attach helper textarea 補 `autocomplete="off"` → `NO_SUGGESTIONS` 逐鍵輸入,中文改走 capture Send。D-26:`useTouchScroll` — 手指拖曳捲動終端,normal buffer 走 `term.scrollLines`、alt-screen 走 `scroll_session` copy-mode)*

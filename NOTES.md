@@ -41,6 +41,11 @@
   - 只動 Android(`QuickKeyBar.tsx` / `ModifierBar.tsx` / `SessionScreen.tsx`)。
   - **驗證**:引擎級已在 real Blink(= Android System WebView 同引擎)用真實 Chromium 輸入事件驗 9/9 PASS — focus 保留(fixed vs control 對照)、click 照常、`autocomplete=off` 確實掛上 `.xterm-helper-textarea`;`autocomplete=off → NO_SUGGESTIONS` 經現行 Chromium `ImeUtils` 原始碼確認。**追加觸控路徑驗證**(Android UA + `hasTouch` + CDP 真 touch 事件,走 WebView 同款 touch→compat-mouse→focus pipeline):`onMouseDown.preventDefault` 在觸控 tap 下即足以保住焦點 + click 照常,對照組觸控 tap 確實被搶焦 → **確認觸控路徑下修法成立、不需補 `onPointerDown`**(避開它對橫滾的干擾)。Bug 1 至此在 WebView 引擎層近乎完整驗證(剩 OS blur 收鍵盤,而已證 editable 不 blur)。開發機(Linux)無 Android runtime(無 JDK/SDK/adb/emulator,無 sudo)且模擬器是 AOSP 鍵盤非 Gboard → **實機 Gboard 那一哩物理上驗不了**。owner 拍板(2026-06-18)實機自驗,對齊 D-23/D-24 既定分工。實機 checklist 見 [`doc/Android-OnDevice-Verify.md`](doc/Android-OnDevice-Verify.md)。
 
+- D-26(2026-06-18,owner 回報 Android 第三個 bug:無法 drag 滑動畫面):
+  - **根因**:xterm 的 `.xterm-screen`(canvas)疊在 `.xterm-viewport`(`overflow-y:scroll`)之上,觸控落在 screen 不會觸發 viewport 原生捲動;xterm 又只把「滾輪」轉成捲動、不處理 touch-drag(觸控不產生 wheel)→ 行動端兩個 view(capture / attach)都拖不動。D-24 當時「Android 觸控先不動」留的洞。
+  - **修法**:新 hook `src/android/useTouchScroll.ts`,把單指垂直拖曳換算行數 —— **normal buffer** → `term.scrollLines()`(1:1 跟手);**alt-screen**(tmux 全螢幕)→ `scroll_session` tmux copy-mode(對齊 desktop 滾輪 D-24,含 inflight/pending 節流、最多一在途一排隊)。`touchmove` 用原生 `addEventListener({passive:false})` + `preventDefault`,6px tap 容差內不攔(保留點擊聚焦 / 按鈕 / refresh)。方向:手指往下 = 看更早歷史(normal 負向 scrollLines、alt `up=true`)。掛在 SessionScreen capture + attach 兩個 container。
+  - **驗證**:headless Chrome(Android UA + hasTouch)用 CDP 真實 touch 事件 8/8 PASS — normal 方向正確 + 單調 + tap 不誤捲;alt-screen 正確走 callback(`up=true`)且不動 xterm scrollback。`tsc` + `vite build` 過。**實機待 owner 驗**:capture / attach normal 拖得動、alt-screen(tmux 全螢幕)拖能看歷史、tap 仍聚焦。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK

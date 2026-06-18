@@ -48,4 +48,21 @@ adb shell dumpsys input_method | grep -i inputType
 
 ---
 
+## D-26(2026-06-18)— 手指拖曳捲動終端
+
+對應 commit(見 git log）。引擎級(real Chromium + CDP 真實 touch)已驗 8/8 PASS;
+以下實機收尾:
+
+| # | 檢查 | 方法 | 預期 |
+|---|---|---|---|
+| 1 | capture 拖得動 | capture 模式單指上下拖 | 內容跟手捲動,看得到 scrollback |
+| 2 | attach normal buffer 拖得動 | shell / tmux 非全螢幕時上下拖 | 同上,捲 xterm scrollback |
+| 3 | attach alt-screen 拖看歷史 | tmux 跑全螢幕 app(如 less / vim / claude)時上下拖 | 走 tmux copy-mode、看得到先前畫面(對齊 desktop 滾輪) |
+| 4 | tap 仍聚焦、不誤捲 | 輕點終端 | 叫出鍵盤(attach)、不會被當成捲動 |
+| 5 | 方向自然 | 手指往下拖 | 看到「更早」的內容(歷史在上) |
+
+任一不過 → 回報。
+
+---
+
 *建立:2026-06-18(D-25)。新增 Android 行為時在上方「通用」追加可重用檢查,別讓它過期。*

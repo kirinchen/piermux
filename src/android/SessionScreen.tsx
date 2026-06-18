@@ -13,6 +13,7 @@ import type { CaptureResult } from "@/lib/types";
 import { QuickKeyBar } from "./QuickKeyBar";
 import { ModifierBar } from "./ModifierBar";
 import { useViewportHeight } from "./useViewportHeight";
+import { useTouchScroll } from "./useTouchScroll";
 import { PasteConfirmDialog } from "@/components/PasteConfirmDialog";
 import { usePasteGuard } from "@/components/usePasteGuard";
 
@@ -166,6 +167,9 @@ function CaptureView({
     ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, []);
+
+  // 手指拖曳捲動 scrollback(D-26)。capture 永遠 normal buffer,不需 alt 路徑。
+  useTouchScroll({ containerRef, xtermRef });
 
   useEffect(() => {
     const writeResult = (r: CaptureResult) => {
@@ -416,6 +420,16 @@ function AttachView({
       vv?.removeEventListener("resize", refit);
     };
   }, []);
+
+  // 手指拖曳捲動(D-26)。normal buffer 捲 xterm scrollback;alt-screen(tmux
+  // 全螢幕)走 tmux copy-mode,對齊 desktop 滾輪(D-24)。attachId 是 state,
+  // 經由 hook 內 altCbRef 每 render 更新拿到最新值。
+  useTouchScroll({
+    containerRef,
+    xtermRef,
+    onAltScreenScroll: (up, lines) =>
+      attachId ? api.scrollSession(attachId, up, lines) : undefined,
+  });
 
   // xterm.onResize → 通知 backend
   useEffect(() => {
