@@ -56,7 +56,9 @@ export function useTouchScroll({
     // alt-screen 節流(對齊 desktop SessionPanel 的 inflight/pending)
     let inflight = false;
     let pendingLines = 0; // signed,+ = 看歷史(up)
+    let disposed = false; // cleanup 後阻止 in-flight 的 .finally 再 flush(對齊 desktop)
     const flushAlt = () => {
+      if (disposed) return;
       const cb = altCbRef.current;
       if (!cb || pendingLines === 0) {
         pendingLines = 0;
@@ -102,6 +104,10 @@ export function useTouchScroll({
       const dy = y - lastY;
       lastY = y;
       if (!engaged && Math.abs(y - startY) < TAP_SLOP) return;
+      const alt = term.buffer.active.type === "alternate";
+      // alt-screen 但沒有捲動目標(尚未 attach)→ 不攔,讓給瀏覽器 / xterm,
+      // 對齊 desktop SessionPanel 的 `return true`。alt buffer 本來也沒 scrollback。
+      if (alt && !altCbRef.current) return;
       engaged = true;
       // 吞掉預設(原生捲動 / 選字 / 後續 click)— 需 passive:false 才能 preventDefault
       e.preventDefault();
@@ -109,7 +115,7 @@ export function useTouchScroll({
       const lines = Math.trunc(accumPx / cellH);
       if (lines === 0) return;
       accumPx -= lines * cellH;
-      if (term.buffer.active.type === "alternate") {
+      if (alt) {
         // 手指往下(lines>0)= 看歷史 = up
         pendingLines += lines;
         if (!inflight) flushAlt();
@@ -124,11 +130,21 @@ export function useTouchScroll({
       engaged = false;
     };
 
+    // touch-action:none → 瀏覽器不在 TAP_SLOP 視窗(前 6px、還沒 preventDefault)
+    // 內把垂直手勢 latch 成原生 viewport 捲動。否則一旦 latch,後續 touchmove 變
+    // cancelable=false、preventDefault 變 no-op,原生捲動會跟 term.scrollLines
+    // 雙重作用 → 加倍 / 跳動(審查 D-26 high finding)。tap-to-focus 不受影響。
+    const prevTouchAction = el.style.touchAction;
+    el.style.touchAction = "none";
+
     el.addEventListener("touchstart", onStart, { passive: true });
     el.addEventListener("touchmove", onMove, { passive: false });
     el.addEventListener("touchend", onEnd, { passive: true });
     el.addEventListener("touchcancel", onEnd, { passive: true });
     return () => {
+      disposed = true;
+      pendingLines = 0;
+      el.style.touchAction = prevTouchAction;
       el.removeEventListener("touchstart", onStart);
       el.removeEventListener("touchmove", onMove);
       el.removeEventListener("touchend", onEnd);

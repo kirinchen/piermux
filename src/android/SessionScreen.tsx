@@ -427,8 +427,10 @@ function AttachView({
   useTouchScroll({
     containerRef,
     xtermRef,
-    onAltScreenScroll: (up, lines) =>
-      attachId ? api.scrollSession(attachId, up, lines) : undefined,
+    // 沒 attachId 時傳 undefined → hook 在 alt-screen 不攔手勢(對齊 desktop)
+    onAltScreenScroll: attachId
+      ? (up, lines) => api.scrollSession(attachId, up, lines)
+      : undefined,
   });
 
   // xterm.onResize → 通知 backend
