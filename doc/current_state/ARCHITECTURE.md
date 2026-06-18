@@ -44,10 +44,11 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
   - **Capture mode**(M2c)— xterm readonly(font 13、scrollback 5000)+ `captureSession` on mount + `capture-updated:<host>:<session>` listen + 右上 [🔄] per-session refresh + `QuickKeyBar` + 一行文字 input + Send(send_message literal=true, send_enter=true)
   - **Attach mode**(M2d)— `AttachView` 內嵌。`attachSession` / `attachShell`(shell target)on mount,xterm(font 12、scrollback 20000)接 `attach-output-<id>` event,**直接寫進 xterm 不 strip alt-screen**(對齊 desktop,2026-06-04 D-23)。`attach-closed-<id>` → onBack。`writeToSession` 在 ModifierBar 按鍵 / line input Send 時送 raw bytes。Cleanup detach + clear xterm
   - Line buffer:`<textarea>` + Send button,IME `isComposing` 護欄;Shift+Enter 換行,純 Enter 整段送(buffer + `\r`)。**核心賣點**(SPEC §1.2 / §9.1 fallback 設計)
+  - **IME 逐鍵輸入(D-25,2026-06-18)**:attach 的 xterm helper textarea 在 `term.open()` 後補 `autocomplete="off"`,映成 Android `TYPE_TEXT_FLAG_NO_SUGGESTIONS`(xterm 內建只設 autocorrect/autocapitalize/spellcheck),Gboard 關掉 composing region → 逐鍵即時送 PTY(修「選字才輸入」)。代價:CJK composing 一起關 → attach 打中文退化,中文改走 capture 的 Send 框(該框刻意保留 composition)
   - Ctrl sticky:tap CTRL → line input keydown 攔截下個 a-zA-Z,wrap 成 Ctrl+letter raw byte(0x01..0x1a),CTRL 自動 deactivate
   - 軟鍵盤收放:`window.visualViewport` resize event 也 refit(`ResizeObserver` 在 viewport 縮放有時不觸發)
-- `QuickKeyBar.tsx` — JuiceSSH 風橫滾 19 鍵 capture bar。每鍵 `{label, payload, literal}`,走 `send_message`(literal=false 走 tmux send-keys named-key:Tab/Escape/C-c/Up;literal=true 走字面 / - | ~ \` < > [ ])
-- `ModifierBar.tsx` — Attach mode 對應 bar,payload raw bytes 走 `writeToSession`(不過 tmux)。**D-22(2026-06-01)2-row 9-col grid layout** 取代原本單列橫滾。鍵集:R1 = ESC / `|` `-` HOME ↑ END PGUP FN;R2 = TAB CTRL ALT ← ↓ → PGDN _ 🎹。**Sticky modifiers**:CTRL + ALT 點亮後 xterm `attachCustomKeyEventHandler` 攔下一個 a-zA-Z keydown wrap 成 raw byte(CTRL: `0x01..0x1a`;ALT: `\x1b<letter>` ESC 前綴;兩者皆亮:`\x1b` + ctrl-byte),非 a-zA-Z 不攔讓 modifier 維持 sticky。FN 先佔位 onClick console.warn 不送 byte。🎹 收合整條 bar 成右下浮動小 icon
+- `QuickKeyBar.tsx` — JuiceSSH 風橫滾 19 鍵 capture bar。每鍵 `{label, payload, literal}`,走 `send_message`(literal=false 走 tmux send-keys named-key:Tab/Escape/C-c/Up;literal=true 走字面 / - | ~ \` < > [ ])。**D-25**:容器層 `onMouseDown.preventDefault` → 按快速鍵不搶 `<input>` 焦點、軟鍵盤不被收起(click / `:active` / 橫滾不受影響)
+- `ModifierBar.tsx` — Attach mode 對應 bar,payload raw bytes 走 `writeToSession`(不過 tmux)。**D-22(2026-06-01)2-row 9-col grid layout** 取代原本單列橫滾。鍵集:R1 = ESC / `|` `-` HOME ↑ END PGUP FN;R2 = TAB CTRL ALT ← ↓ → PGDN _ 🎹。**Sticky modifiers**:CTRL + ALT 點亮後 xterm `attachCustomKeyEventHandler` 攔下一個 a-zA-Z keydown wrap 成 raw byte(CTRL: `0x01..0x1a`;ALT: `\x1b<letter>` ESC 前綴;兩者皆亮:`\x1b` + ctrl-byte),非 a-zA-Z 不攔讓 modifier 維持 sticky。FN 先佔位 onClick console.warn 不送 byte。🎹 收合整條 bar 成右下浮動小 icon。**D-25**:容器層 `onMouseDown.preventDefault` → 按 modifier 不搶 xterm helper textarea 焦點、軟鍵盤不收(CTRL/ALT sticky 也才接得到下一個實體按鍵)
 
 ### Backend (`src-tauri/src/`)
 
@@ -157,4 +158,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-06-07(D-24:alt-screen 滾輪改走 `scroll_session` IPC → tmux copy-mode 看歷史,不碰 PTY stdin、不 revert D-23 的 strip 移除)*
+*Last updated: 2026-06-18(D-25:Android 輸入手感 — 快速鍵/modifier bar 容器層 `onMouseDown.preventDefault` 保住軟鍵盤焦點;attach helper textarea 補 `autocomplete="off"` → `NO_SUGGESTIONS` 逐鍵輸入,中文改走 capture Send)*

@@ -77,7 +77,12 @@ export function ModifierBar({
 }: Props) {
   if (collapsed) {
     return (
-      <div className="flex justify-end border-t border-zinc-800 bg-zinc-900 px-2 py-1">
+      // D-25:onMouseDown.preventDefault → 點 bar 不搶 xterm helper textarea 焦點,
+      // 軟鍵盤保持開著(CTRL/ALT sticky 也才接得到下一個實體按鍵)。
+      <div
+        className="flex justify-end border-t border-zinc-800 bg-zinc-900 px-2 py-1"
+        onMouseDown={(e) => e.preventDefault()}
+      >
         <button
           type="button"
           onClick={onToggleCollapsed}
@@ -92,7 +97,11 @@ export function ModifierBar({
   }
 
   return (
-    <div className="border-t border-zinc-800 bg-zinc-900 px-2 py-2">
+    // D-25:同上 — 整條 bar 攔 mousedown 保焦點,軟鍵盤不收。
+    <div
+      className="border-t border-zinc-800 bg-zinc-900 px-2 py-2"
+      onMouseDown={(e) => e.preventDefault()}
+    >
       {/* Row 1 */}
       <div className="mb-1 flex gap-1">
         {ROW1.map((k) => (

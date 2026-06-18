@@ -279,6 +279,9 @@ function CaptureView({
           className="flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-base text-zinc-100 placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
           autoCapitalize="none"
           autoCorrect="off"
+          // D-25:這裡「不」關 NO_SUGGESTIONS — capture 是「打整段 → Send」流程,
+          // 沒有逐字延遲問題,刻意保留 IME composition 讓中文訊息可組字
+          // (attach 才走逐鍵 NO_SUGGESTIONS;中文需求走這條 Send 路)。
         />
         <button
           type="button"
@@ -345,6 +348,13 @@ function AttachView({
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
+
+    // D-25:xterm 內建只給 helper textarea 設 autocorrect/autocapitalize/
+    // spellcheck=off,獨缺 autocomplete。Chromium 把 autocomplete="off" 映成
+    // Android TYPE_TEXT_FLAG_NO_SUGGESTIONS → Gboard 關掉 composing region、
+    // 逐鍵提交(「輸入什麼就是什麼」,不用選完字才送進 PTY)。
+    // helper textarea 要 open() 之後才存在,所以在這裡補設。
+    term.textarea?.setAttribute("autocomplete", "off");
 
     // CTRL/ALT sticky:亮燈時下一個 a-zA-Z keydown 被 wrap 後 return false
     // 不交給 xterm,避免裸字母也被送進去。

@@ -42,7 +42,12 @@ type Props = {
 export function QuickKeyBar({ disabled, onSendKey }: Props) {
   return (
     <div className="border-t border-zinc-800 bg-zinc-900">
-      <div className="flex gap-1 overflow-x-auto px-2 py-2">
+      {/* D-25:容器層攔 mousedown.preventDefault → 按快速鍵不搶走 input 焦點,
+          軟鍵盤不會被收起來。click 照常觸發、:active 樣式 / 橫滾不受影響。 */}
+      <div
+        className="flex gap-1 overflow-x-auto px-2 py-2"
+        onMouseDown={(e) => e.preventDefault()}
+      >
         {KEYS.map((k) => (
           <button
             key={k.label}
