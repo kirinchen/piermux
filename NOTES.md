@@ -38,7 +38,8 @@
   1. **按快速鍵 → 軟鍵盤被收起**:`QuickKeyBar` / `ModifierBar` 的按鈕被 tap 時搶走「持有軟鍵盤的元素」(capture 的 `<input>` / attach 的 xterm `.xterm-helper-textarea`)焦點 → Android 收鍵盤,每按一鍵都得重叫。修法:在兩條 bar 的**容器層**掛 `onMouseDown={e => e.preventDefault()}`(mousedown 在冒泡階段 preventDefault 就能取消「對焦點」的 default action,一個 handler 涵蓋所有子按鈕;click / `:active` / 橫滾都不受影響)。**Bonus**:CTRL/ALT sticky 之前因為點下去鍵盤就收、接不到下一個實體按鍵根本沒法用,焦點留住後才真的可用。
   2. **智能選字 / 每次選字完才輸入**:attach 逐字進 PTY 時 Gboard 用 composing region 緩衝、選完字才送。根因 — xterm helper textarea 內建只設 `autocorrect/autocapitalize/spellcheck=off`,**獨缺 `autocomplete`**。Chromium `ImeUtils`:`autocomplete="off"` → `WebTextInputFlags.AUTOCOMPLETE_OFF` → Android `TYPE_TEXT_FLAG_NO_SUGGESTIONS`(查現行 main 原始碼仍成立),才會真正關掉 composing region、逐鍵提交。修法:`term.open()` 後 `term.textarea?.setAttribute("autocomplete","off")`。
   - **取捨(主動標記):** NO_SUGGESTIONS 會連 CJK composing 一起關 → attach 打**中文**會退化(可能送注音/拼音裸字母),跟下方 ISSUE-010 M2 acceptance「attach 打中文按 Enter」衝突。**刻意只套 attach**;capture 送訊息框(打整段 → Send,沒有逐字延遲)保留 IME composition 當中文輸入的路。owner 若要 attach 也能打中文,需另加 toggle 或回 D-20 拿掉的 line-buffer 批次送。
-  - 只動 Android(`QuickKeyBar.tsx` / `ModifierBar.tsx` / `SessionScreen.tsx`)。**未實機驗** — 待 owner 確認:按快速鍵鍵盤不收、attach 打字逐鍵即時、capture 中文仍可組。
+  - 只動 Android(`QuickKeyBar.tsx` / `ModifierBar.tsx` / `SessionScreen.tsx`)。
+  - **驗證**:引擎級已在 real Blink(= Android System WebView 同引擎)用真實 Chromium 輸入事件驗 9/9 PASS — focus 保留(fixed vs control 對照)、click 照常、`autocomplete=off` 確實掛上 `.xterm-helper-textarea`;`autocomplete=off → NO_SUGGESTIONS` 經現行 Chromium `ImeUtils` 原始碼確認。開發機(Linux)無 Android runtime(無 JDK/SDK/adb/emulator,無 sudo)且模擬器是 AOSP 鍵盤非 Gboard → **實機 Gboard 那一哩物理上驗不了**。owner 拍板(2026-06-18)實機自驗,對齊 D-23/D-24 既定分工。實機 checklist 見 [`doc/Android-OnDevice-Verify.md`](doc/Android-OnDevice-Verify.md)。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
