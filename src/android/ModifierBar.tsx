@@ -7,10 +7,10 @@
 //   R2: TAB CTRL ALT  ←  ↓   →   PGDN _   🎹
 // (R2 col 8 留空保持 🎹 跟 FN 對齊)
 //
-// Sticky 設計:CTRL / ALT 點亮後,xterm keydown 上下一個 a-zA-Z 字元被
-// wrap 成對應 raw byte(CTRL: 0x01..0x1a;ALT: \x1b<letter>;兩個都亮:
-// \x1b 前綴 + ctrl-byte)送完自動 deactivate。FN 先佔位 onClick 不做事
-// (only console.warn),button state 不參與 sticky。
+// Toggle 設計(D-27):CTRL / ALT 點亮(反藍)= key down 按住,亮燈期間每個
+// a-zA-Z keydown 都 wrap 成對應 raw byte(CTRL: 0x01..0x1a;ALT: \x1b<letter>;
+// 兩個都亮:\x1b 前綴 + ctrl-byte);再點一次才 key up(release)。讓 Ctrl+C
+// 等組合鍵可連續套用。FN 先佔位 onClick 不做事(only console.warn)。
 //
 // 🎹 鍵盤 icon 收合整條 bar(剩浮動小 icon 在角落)。
 
@@ -141,7 +141,7 @@ export function ModifierBar({
           onClick={onToggleCtrl}
           aria-pressed={ctrlActive}
           className={stickyClass(ctrlActive)}
-          title="按下後下一個輸入字元送 Ctrl+letter,再按一次取消"
+          title="反藍=按住 Ctrl,輸入字元送 Ctrl+letter;再按一次放開"
         >
           CTRL
         </button>
@@ -151,7 +151,7 @@ export function ModifierBar({
           onClick={onToggleAlt}
           aria-pressed={altActive}
           className={stickyClass(altActive)}
-          title="按下後下一個輸入字元送 Alt(ESC 前綴)+letter,再按一次取消"
+          title="反藍=按住 Alt(ESC 前綴),輸入字元送 Alt+letter;再按一次放開"
         >
           ALT
         </button>

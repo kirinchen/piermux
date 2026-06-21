@@ -65,4 +65,20 @@ adb shell dumpsys input_method | grep -i inputType
 
 ---
 
+## D-27(2026-06-21)— D-25 兩處實機收尾(toggle + inputmode)
+
+D-25 兩處實機沒到位的修正。**只有 Gboard 實機能驗**:
+
+| # | 檢查 | 方法 | 預期 |
+|---|---|---|---|
+| 1 | **CTRL 改 toggle(按住)** | attach 點 CTRL(反藍)→ 連打 `c` `c` | 每個都送 Ctrl+C(0x03)、CTRL 維持反藍不熄 |
+| 2 | **再 tap 才放開(key up)** | 接著再點 CTRL → 打字母 | CTRL 熄滅、恢復一般輸入 |
+| 3 | Ctrl+C 能中斷 | 跑 `sleep 100` → 點 CTRL → 打 `c` | 指令被 SIGINT 中斷 |
+| 4 | **attach 逐鍵直送不組字** | attach 打 `ls`(通用 B) | inputType 含 `0x80000`、字母逐個即時、無 composing/選字條 |
+| 5 | URL 鍵盤版面可接受 | 看 attach 打字時的鍵盤 | Gboard URL 版面(有 / 和 . )、可正常打指令 |
+
+第 4 / 5 項若不滿意 → 回報,可回退討論 `inputmode="email"` 或非侵入加強。
+
+---
+
 *建立:2026-06-18(D-25)。新增 Android 行為時在上方「通用」追加可重用檢查,別讓它過期。*

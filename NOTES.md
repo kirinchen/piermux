@@ -47,6 +47,12 @@
   - **驗證**:headless Chrome(Android UA + hasTouch)用 CDP 真實 touch 事件 8/8 PASS — normal 方向正確 + 單調 + tap 不誤捲;alt-screen 正確走 callback(`up=true`)且不動 xterm scrollback。`tsc` + `vite build` 過。**實機待 owner 驗**:capture / attach normal 拖得動、alt-screen(tmux 全螢幕)拖能看歷史、tap 仍聚焦。
   - **對抗式審查(workflow,16 agents)抓到並修掉**:① **[high] 缺 `touch-action`** → 前 6px(TAP_SLOP 內還沒 preventDefault)Chromium compositor 把垂直手勢 latch 成原生 viewport 捲動 → 之後 `cancelable=false`、preventDefault 變 no-op → 原生捲動 + `scrollLines` 雙重作用跳動。修:hook 設 `el.style.touchAction='none'`(cleanup 還原)。② **[low] unmount race**:in-flight + pending 在卸載後再送一次 stale `scrollSession`(被後端拒+前端吞)。修:`disposed` flag + cleanup 清 `pendingLines`(對齊 desktop)。③ **[low] alt 未 attach 吞手勢**:desktop 會還給 xterm。修:alt 無 callback 時不 preventDefault,AttachView 無 attachId 時傳 `undefined`。駁回 5 項誤報(containerRef null / xterm 無 touch 選字 / pinch engaged 殘留 / 靈敏度)。修後 headless 5/5 PASS。
 
+- D-27(2026-06-21,owner 回報 D-25 兩處實機沒到位):
+  1. **CTRL/ALT 改 toggle(hold)**:D-20 的 sticky 是 one-shot(亮 → 下一個字母 wrap → 自動熄滅),owner 要的是 **toggle**:反藍 = key down 按住,亮燈期間每個 a-zA-Z keydown 都 wrap,**再點一次才 key up**。為 Ctrl+C 等組合鍵的連續/明確操作。修法:`SessionScreen` 的 `attachCustomKeyEventHandler` 拿掉送完的 `setCtrlSticky(false)/setAltSticky(false)`,維持亮燈直到使用者再點按鈕。視覺 / 狀態本來就 toggle(`onToggle*` 已是 `v => !v`),只差不要自動 release。**取捨**:toggle 開著時打一般字母會被 ctrl-wrap,使用者需自行再點熄滅(符合「再次 click = key up」的明示模型)。on-screen byte 按鈕(箭頭等)仍不被 modifier wrap(走 `onSendBytes` 不過 keydown handler)—— 目前 owner 只要字母組合鍵,暫不擴。
+  2. **逐鍵直送改 `inputmode="url"`**:D-25 的 `autocomplete=off → NO_SUGGESTIONS` 實機 Gboard 仍會組字/選字。研判根因 — xterm helper textarea 是 `<textarea>`(multiline),Gboard 對 multiline 即使收到 NO_SUGGESTIONS 仍保留 composing region。屬性層壓不掉。改用 `inputmode="url"`:Gboard 切 URL 鍵盤,逐鍵直送不組字、版面最接近一般 QWERTY(有 / 和 . )。`autocomplete=off` 一併保留。中文需求仍走 capture Send 路(刻意保留 composition)。**owner 拍板方向(2026-06-21)**:可接受 url 版面換來「打什麼就是什麼」。
+  - 只動 `SessionScreen.tsx` / `ModifierBar.tsx`(註解 + title)。`tsc --noEmit` 過(無 eslint,專案未裝)。
+  - **驗證**:這兩處本質是 Gboard 實機手感,開發機(Linux,無 Android runtime,模擬器非 Gboard)驗不了 → **待 owner 實機驗**:① CTRL 反藍後連按多鍵都帶 Ctrl、再點熄滅才恢復一般輸入;Ctrl+C 能中斷。② attach 打字逐鍵即時進 PTY、不再跳選字。若 url 版面仍不滿意可回退討論 email / 非侵入加強。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK

@@ -353,19 +353,25 @@ function AttachView({
     xtermRef.current = term;
     fitRef.current = fit;
 
-    // D-25:xterm 內建只給 helper textarea 設 autocorrect/autocapitalize/
-    // spellcheck=off,獨缺 autocomplete。Chromium 把 autocomplete="off" 映成
-    // Android TYPE_TEXT_FLAG_NO_SUGGESTIONS → Gboard 關掉 composing region、
-    // 逐鍵提交(「輸入什麼就是什麼」,不用選完字才送進 PTY)。
+    // 逐鍵直送、不組字(「輸入什麼就是什麼」,不用選完字才送進 PTY)。
+    // D-25 只設 autocomplete=off 想觸發 Android NO_SUGGESTIONS,但實機 Gboard
+    // 對 xterm 的 <textarea>(multiline)即使收到 NO_SUGGESTIONS 仍保留 composing
+    // region,所以還是要選字才提交。
+    // D-27 改用 inputmode="url":Gboard URL 鍵盤關掉組字 / 選字、逐鍵提交,版面
+    // 也最接近一般 QWERTY(有 / 和 . )。autocomplete=off 一併保留(壓 suggestion
+    // strip)。中文需求走 capture 的 Send 路(那邊刻意保留 composition)。
     // helper textarea 要 open() 之後才存在,所以在這裡補設。
     term.textarea?.setAttribute("autocomplete", "off");
+    term.textarea?.setAttribute("inputmode", "url");
 
-    // CTRL/ALT sticky:亮燈時下一個 a-zA-Z keydown 被 wrap 後 return false
-    // 不交給 xterm,避免裸字母也被送進去。
+    // CTRL/ALT toggle(D-27,改自 D-20 one-shot sticky):
+    // 反藍 = key down(按住),亮燈期間每個 a-zA-Z keydown 都被 wrap 後 return
+    // false 不交給 xterm;再點一次按鈕才 key up(release)。讓 Ctrl 可連續套用、
+    // 使用者明確掌握 modifier 狀態(對齊實體鍵盤的 hold 行為)。
     //   CTRL only: 0x01..0x1a
     //   ALT only:  \x1b<letter>(preserve case)
     //   CTRL+ALT:  \x1b + ctrl-byte
-    // 任一 sticky 啟動但非 a-zA-Z 按鍵 → 不攔,讓 xterm 正常處理(modifier 維持 sticky)
+    // 任一 toggle 啟動但非 a-zA-Z 按鍵 → 不攔,讓 xterm 正常處理(modifier 維持亮)。
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const ctrlOn = ctrlStickyRef.current;
@@ -382,8 +388,7 @@ function AttachView({
       }
       if (altOn) payload = "\x1b" + payload;
       writeRawRef.current(payload);
-      if (ctrlOn) setCtrlSticky(false);
-      if (altOn) setAltSticky(false);
+      // D-27:toggle 模式不自動 release —— 維持亮燈直到使用者再點一次(key up)。
       return false;
     });
 
