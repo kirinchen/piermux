@@ -1,7 +1,7 @@
 # piermux v0.1.6 — Android CTRL/ALT toggle + attach inputmode=url
 
-跨多機 tmux session GUI · desktop (Windows) + Android。
-本次為 **Android-only** 發版,延續 D-25 的實機回饋修正;desktop 與 v0.1.4 相同,未隨此版重出。
+跨多機 tmux session GUI · desktop (Windows / Linux) + Android。
+本次延續 D-25 的 Android 實機回饋修正(D-27),並**首次補上 Linux 桌面版**(Ubuntu / Linux Mint)。Windows 桌面未隨此版重出,續用 v0.1.4。
 
 ## What's Changed
 
@@ -12,10 +12,14 @@
 
 ## Downloads
 
-- Android APK(`piermux-android-v0.1.6.apk`,universal,離線可跑)
+- **Android** — `piermux-android-v0.1.6.apk`(universal,離線可跑)
+- **Linux 桌面(Ubuntu / Linux Mint,x86_64)**
+  - `piermux_0.1.6_amd64.deb` — `sudo apt install ./piermux_0.1.6_amd64.deb`(相依 `libwebkit2gtk-4.1-0`、`libgtk-3-0`,Ubuntu 22.04+ / Mint 21+ 內建)
+  - `piermux_0.1.6_amd64.AppImage` — `chmod +x` 後直接執行,免安裝
 
 ## Known limitations
 
 - 這兩處本質是 Gboard 實機手感,待 owner 實機驗:① CTRL 反藍後連按多鍵都帶 Ctrl、再點熄滅;Ctrl+C 能中斷。② attach 打字逐鍵即時進 PTY、不再跳選字。
 - ISSUE-010 M2 sticky acceptance(Android 真機 attach → line buffer 打中文按 Enter)仍待實機驗證,未驗前 M2 不算 done。
-- Desktop 未隨此版更新;Windows 使用者請續用 v0.1.4。
+- Linux 桌面功能等同 v0.1.4 desktop(D-25/26/27 皆 Android-only 改動),僅版本號隨此版到 0.1.6。
+- Windows 桌面未隨此版重出;Windows 使用者請續用 v0.1.4。
