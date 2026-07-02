@@ -53,6 +53,13 @@
   - 只動 `SessionScreen.tsx` / `ModifierBar.tsx`(註解 + title)。`tsc --noEmit` 過(無 eslint,專案未裝)。
   - **驗證**:這兩處本質是 Gboard 實機手感,開發機(Linux,無 Android runtime,模擬器非 Gboard)驗不了 → **待 owner 實機驗**:① CTRL 反藍後連按多鍵都帶 Ctrl、再點熄滅才恢復一般輸入;Ctrl+C 能中斷。② attach 打字逐鍵即時進 PTY、不再跳選字。若 url 版面仍不滿意可回退討論 email / 非侵入加強。
 
+- D-28(2026-07-02,owner 回報「新版 tmux OSC 52 行頭有多餘字」,附 confuse.png):
+  - **先證偽 OSC 52 解析**:用 headless xterm 6 餵**真實 tmux 3.4 OSC 52 bytes**(`\x1b]52;;<base64>\x07`,注意新版 tmux selection 欄位是**空的**、雙分號)+ 各種變體(BEL/ST 終止、超長、分段寫入、alt-screen、CJK 邊界),全數乾淨消化,無殘留。我們的 `osc52.ts` regex `^([cps0-7]*);(.+)$` 對空 selection 也 match。**結論:OSC 52 解析不是兇手**;xterm 對「未處理 / 回 false 的 OSC」是丟棄不印。
+  - **真正根因 = 字元寬度不符**:量測 tmux 3.4 vs xterm.js 6 對 confuse.png 內容字元的寬度 —— **emoji `✅ ❌ ⚠️` tmux 當寬度 2、xterm.js 預設(Unicode 6 provider)當寬度 1**(`◎ ① ±` 兩邊都 1、`中 、` 都 2,一致)。tmux 全螢幕重繪(copy-mode yank / 之後)用絕對+相對游標定位,每個 emoji 差 1 欄的誤差累積,把行尾字擠到下一行 → **行頭殘留/重複字**。owner 會在 copy 時注意到,故誤以為是 OSC 52。新版 tmux 更新 Unicode 寬度表才顯現。
+  - **修法**:加官方 addon `@xterm/addon-unicode-graphemes`(Unicode 15 + grapheme cluster),新 helper `src/lib/xterm-unicode.ts` 統一 `loadAddon + unicode.activeVersion=最新`,套到全部 4 個 xterm 初始化點(Android capture/attach、desktop `CaptureCell` / `SessionPanel`)。unicode API 是 proposed → 4 處建構補 `allowProposedApi:true`。實測 addon 寬度**完全對齊 tmux 3.4**:`✅ ❌ ⚠️`(含 VS16 U+26A0+U+FE0F)皆 2、`◎ ① ±` 皆 1、`中 、 👍 🏃` 皆 2。unicode11 只修 `✅❌`、修不了 `⚠️` VS16,故選 graphemes。
+  - **取捨**:graphemes 標 experimental,對罕見 ZWJ/國旗序列的 cluster 可能與 tmux 不同(殘留風險僅這類 exotic 字,現況本來就全 emoji 皆錯,非退步)。bundle +13KB gzip(Unicode 表)。
+  - **驗證**:headless 已證寬度對齊 + `tsc` + `vite build` 過。**待 owner 實機/實 session 驗**:tmux 內容含 `✅❌⚠️` 的畫面(copy 後重繪)行頭不再冒多餘字。若 exotic emoji 仍偏移再議。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK

@@ -6,6 +6,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "../lib/osc52";
+import { installUnicodeWidths } from "../lib/xterm-unicode";
 import {
   Terminal as TerminalIcon,
   RefreshCw,
@@ -44,9 +45,13 @@ export function CaptureCell({ host, session, onExpand }: Props) {
       convertEol: true,
       disableStdin: true,
       scrollback: 2000,
+      // unicode API(寬度對齊 tmux)是 proposed,需開這旗標
+      allowProposedApi: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // 對齊新版 tmux 的 emoji/CJK 寬度,避免行頭殘留字(D-28)。要在 open/write 前。
+    installUnicodeWidths(term);
     // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
     installOsc52Handler(term);
     term.open(containerRef.current);

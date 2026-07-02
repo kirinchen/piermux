@@ -31,6 +31,7 @@ owner: kirin
 - `lib/tauri.ts` — Tauri invoke wrapper(所有 backend command 集中在這個 `api` object)
 - `lib/types.ts` — TS mirror 的 backend types(Host / Session / CaptureResult / HostConnectionStatus / HostForm)
 - `lib/osc52.ts` — `installOsc52Handler(term)` 給每個 xterm 掛 OSC 52 OSC handler(PR #2,2026-06-01)。收到 remote 的 `ESC]52;c;<base64>BEL`(tmux `set -g set-clipboard on` 觸發)→ `atob` → `tauri-plugin-clipboard-manager.writeText` → host OS clipboard。**Read 請求(`?` payload)直接拒絕**,capability 也只給 `clipboard-manager:allow-write-text`(雙保險)。掛點:`SessionPanel` / `CaptureCell` / `SessionScreen`(CaptureView + AttachView)四處
+- `lib/xterm-unicode.ts` — `installUnicodeWidths(term)` 把 xterm 字元寬度對齊新版 tmux(**D-28,2026-07-02**)。載入官方 `@xterm/addon-unicode-graphemes`(Unicode 15 + grapheme cluster)並設 `unicode.activeVersion` 為最新。**根因**:tmux 3.4 把 emoji(`✅ ❌ ⚠️`)當寬度 2,xterm 預設 Unicode 6 provider 當寬度 1 → tmux 重繪時每 emoji 差 1 欄累積 → 行尾字 wrap 到下一行行頭(owner 誤判為 OSC 52,實為寬度 desync;OSC 52 解析已用真實 tmux 3.4 bytes 證明乾淨)。掛在同上四處 xterm 初始化(建構需 `allowProposedApi:true`,unicode API 是 proposed),要在 `open()`/`write()` 前呼叫
 
 ### Frontend — Android (`src/android/`)
 
@@ -132,7 +133,7 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 - **Language:** Rust 1.85 (MSRV) + TypeScript 5.8 (strict)
 - **Desktop framework:** Tauri 2.x (`tauri` 2 / `tauri-plugin-sql` 2 / `tauri-plugin-clipboard-manager` 2.3)
 - **Frontend:** React 19 + Vite 7 + Tailwind 4(`@tailwindcss/vite`)+ TanStack Query 5 + radix-ui (dialog/label/select/slot) + sonner + lucide
-- **Terminal renderer:** `@xterm/xterm` 5 + `addon-fit` + `addon-web-links`
+- **Terminal renderer:** `@xterm/xterm` 6 + `addon-fit` + `addon-web-links` + `addon-unicode-graphemes`(D-28:對齊新版 tmux emoji/CJK 寬度)
 - **SSH:** `makiko` 0.2.5 (D-7,SPEC §13 deviation 從 russh 換,純 Rust crypto)
 - **Datastore:** SQLite via `sqlx` 0.8(backend 自開 pool,D-5)+ `tauri-plugin-sql`(load 但不註冊 migration,留給 frontend 之後 incremental 用)
 - **Secrets:** `keyring` 3.6 with `apple-native` / `windows-native` / `sync-secret-service` features(D-9)
@@ -160,4 +161,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-06-21(D-27:CTRL/ALT 由 one-shot sticky 改 toggle(hold,反藍=按住、再 tap 放開)為組合鍵;attach 逐鍵輸入由 `autocomplete=off → NO_SUGGESTIONS` 改 `inputmode="url"`,壓掉 Gboard multiline composing。D-25:快速鍵/modifier bar 容器層 `onMouseDown.preventDefault` 保住軟鍵盤焦點。D-26:`useTouchScroll` — 手指拖曳捲動終端,normal buffer 走 `term.scrollLines`、alt-screen 走 `scroll_session` copy-mode)*
+*Last updated: 2026-07-02(D-28:`lib/xterm-unicode.ts` — 加 `@xterm/addon-unicode-graphemes` 把 emoji/CJK 寬度對齊新版 tmux 3.4,修「OSC 52 行頭多餘字」實為寬度 desync;OSC 52 解析經真實 tmux bytes 證明乾淨。D-27:CTRL/ALT 改 toggle(hold);attach 逐鍵輸入改 `inputmode="url"`。D-26:`useTouchScroll` 手指拖曳捲動。D-25:bar 容器層 `onMouseDown.preventDefault` 保軟鍵盤焦點)*

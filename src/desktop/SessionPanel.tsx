@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "../lib/osc52";
+import { installUnicodeWidths } from "../lib/xterm-unicode";
 import {
   Terminal as TerminalIcon,
   Zap,
@@ -89,10 +90,14 @@ export function SessionPanel({ host, target, onBack }: Props) {
       // 20000 行 ≈ 1.6 MB。Attach mode 用 strip-alt-screen 法後,
       // tmux 的全部輸出都會走 normal buffer scrollback,需要大一點容量
       scrollback: 20000,
+      // unicode API(寬度對齊 tmux)是 proposed,需開這旗標
+      allowProposedApi: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
+    // 對齊新版 tmux 的 emoji/CJK 寬度,避免行頭殘留字(D-28)。要在 open/write 前。
+    installUnicodeWidths(term);
     // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
     installOsc52Handler(term);
     term.open(containerRef.current);
