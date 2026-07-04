@@ -491,6 +491,23 @@ function AttachView({
         }
         setAttachId(aid);
 
+        // D-29:attach 後強制再 fit + resize,讓 tmux 用 xterm 實際可見寬度重畫。
+        // 初次 fit 可能在佈局(軟鍵盤 / 容器)定案前跑、讀到過寬 cols → 送錯給
+        // tmux → tmux 畫得比 xterm 寬 → 換行 desync、行頭殘留字。rAF + 200ms 補做。
+        const attachedId = aid;
+        const syncSize = () => {
+          const t = xtermRef.current;
+          if (!t || cancelled) return;
+          try {
+            fitRef.current?.fit();
+          } catch {
+            // layout 未穩,下一次再試
+          }
+          api.resizeSession(attachedId, t.cols, t.rows).catch(() => {});
+        };
+        requestAnimationFrame(syncSize);
+        setTimeout(syncSize, 200);
+
         unlistenOutput = await listen<string>(`attach-output-${aid}`, (e) => {
           const t = xtermRef.current;
           if (!t) return;

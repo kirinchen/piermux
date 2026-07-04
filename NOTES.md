@@ -58,7 +58,15 @@
   - **真正根因 = 字元寬度不符**:量測 tmux 3.4 vs xterm.js 6 對 confuse.png 內容字元的寬度 —— **emoji `✅ ❌ ⚠️` tmux 當寬度 2、xterm.js 預設(Unicode 6 provider)當寬度 1**(`◎ ① ±` 兩邊都 1、`中 、` 都 2,一致)。tmux 全螢幕重繪(copy-mode yank / 之後)用絕對+相對游標定位,每個 emoji 差 1 欄的誤差累積,把行尾字擠到下一行 → **行頭殘留/重複字**。owner 會在 copy 時注意到,故誤以為是 OSC 52。新版 tmux 更新 Unicode 寬度表才顯現。
   - **修法**:加官方 addon `@xterm/addon-unicode-graphemes`(Unicode 15 + grapheme cluster),新 helper `src/lib/xterm-unicode.ts` 統一 `loadAddon + unicode.activeVersion=最新`,套到全部 4 個 xterm 初始化點(Android capture/attach、desktop `CaptureCell` / `SessionPanel`)。unicode API 是 proposed → 4 處建構補 `allowProposedApi:true`。實測 addon 寬度**完全對齊 tmux 3.4**:`✅ ❌ ⚠️`(含 VS16 U+26A0+U+FE0F)皆 2、`◎ ① ±` 皆 1、`中 、 👍 🏃` 皆 2。unicode11 只修 `✅❌`、修不了 `⚠️` VS16,故選 graphemes。
   - **取捨**:graphemes 標 experimental,對罕見 ZWJ/國旗序列的 cluster 可能與 tmux 不同(殘留風險僅這類 exotic 字,現況本來就全 emoji 皆錯,非退步)。bundle +13KB gzip(Unicode 表)。
-  - **驗證**:headless 已證寬度對齊 + `tsc` + `vite build` 過。**待 owner 實機/實 session 驗**:tmux 內容含 `✅❌⚠️` 的畫面(copy 後重繪)行頭不再冒多餘字。若 exotic emoji 仍偏移再議。
+  - **驗證**:headless 已證寬度對齊 + `tsc` + `vite build` 過。
+  - **後記(D-29 修正認知)**:D-28 是真的字寬 bug、值得修,但**不是** owner 那兩張截圖「行頭殘留」的主因 —— 見 D-29。graphemes addon 保留。
+
+- D-29(2026-07-04,owner 回報「還是一樣,但只有非全寬會壞、全寬正常」,附 st.png / normal.png):
+  - **決定性線索(owner 實測)**:畫面壞掉時「**手動拖視窗邊緣改寬度、不 detach,拖一下就完全正常**」。→ 拖視窗觸發 `fit()` → xterm 尺寸變 → `onResize` → `resizeSession` → tmux 依新尺寸全重畫 → 好了。證明是**尺寸不同步**,不是字寬。
+  - **根因**:attach 當下送給 tmux 的 `cols/rows` 對不上 xterm 實際可見寬度。非全寬(desktop sidebar 開 / Android 軟鍵盤)時,`start()` 裡那次**同步 fit** 在佈局定案前跑,`FitAddon` 讀到的 `clientWidth` 是過寬的暫態值 → term.cols 設太寬 → 送太寬的 cols 給 tmux → **tmux 畫得比 xterm 可見寬度寬 → 換行 desync、行頭殘留/散字**。因為容器實際尺寸「沒變」(只是量錯),`ResizeObserver` 不會再 fire,term.cols 就一直錯,直到 owner 手動拖視窗。全寬時剛好量得對(或 xterm ≥ tmux 寬)故正常。confuse.png 其實也是非全寬 → D-28 沒解到這條。
+  - **修法**:attach 成功後自動補做「拖視窗那一下」—— `setAttachId` 後 `requestAnimationFrame` + `setTimeout(200ms)` 各跑一次 `syncSize()`:再 `fit()`(此時佈局已穩,量得對)+ 明確 `resizeSession(aid, term.cols, term.rows)`。佈局定案後 fit 會把 term.cols 修正 → 尺寸變 → tmux 重畫 → 對齊。desktop `SessionPanel` + Android `SessionScreen` AttachView 都加(guard `cancelled` / desktop 另 guard `attachIdRef===aid`)。
+  - **只動前端** attach 流程,沒動後端 `resize_session`(WindowChange 本來就對)。`tsc` 過。
+  - **驗證**:根因已由 owner「拖一下就正常」實測確認,修法等於自動化那個動作。開發機無 display 跑不了 GUI → **待 owner 實機驗**:非全寬(sidebar 開)fresh attach 一進去就正常、不用再手動拖。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**

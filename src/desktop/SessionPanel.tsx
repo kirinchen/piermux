@@ -272,6 +272,25 @@ export function SessionPanel({ host, target, onBack }: Props) {
         setAttachId(aid);
         attachIdRef.current = aid;
 
+        // D-29:attach 後強制再 fit + resize,讓 tmux 用 xterm「實際可見寬度」重畫。
+        // 非全寬(sidebar 開)時 start() 裡那次同步 fit 可能在佈局定案前跑、讀到
+        // 過寬的 cols → 送錯給 tmux → tmux 畫得比 xterm 寬 → 換行 desync、行頭殘留字。
+        // 之後沒東西自動修正,直到使用者手動拖視窗(拖一下就正常 = 觸發 fit→resize→
+        // 重畫)。這裡自動補做:rAF 抓一次、200ms 再抓一次涵蓋 layout / sidebar 動畫。
+        const attachedId = aid;
+        const syncSize = () => {
+          const t = xtermRef.current;
+          if (!t || cancelled || attachIdRef.current !== attachedId) return;
+          try {
+            fitRef.current?.fit();
+          } catch {
+            // layout 未穩,下一次再試
+          }
+          api.resizeSession(attachedId, t.cols, t.rows).catch(() => {});
+        };
+        requestAnimationFrame(syncSize);
+        setTimeout(syncSize, 200);
+
         unlistenOutput = await listen<string>(
           `attach-output-${aid}`,
           (e) => {
