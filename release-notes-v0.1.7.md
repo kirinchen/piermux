@@ -12,6 +12,10 @@
 
 ## Downloads
 
+- **Windows 桌面(x64)**
+  - `piermux_0.1.7_x64-setup.exe` — NSIS 安裝檔(建議)
+  - `piermux_0.1.7_x64_en-US.msi` — MSI(批次部署用)
+  - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
 - **Linux 桌面(Ubuntu / Linux Mint,x86_64)**
   - `piermux_0.1.7_amd64.deb` — `sudo apt install ./piermux_0.1.7_amd64.deb`(相依 `libwebkit2gtk-4.1-0`、`libgtk-3-0`,Ubuntu 22.04+ / Mint 21+ 內建)
   - `piermux_0.1.7_amd64.AppImage` — `chmod +x` 後直接執行,免安裝
@@ -19,4 +23,4 @@
 ## Known limitations
 
 - graphemes addon 標記為 experimental:罕見的 ZWJ / 國旗 emoji 序列 cluster 可能與 tmux 認定不同(這類 exotic 字元才有殘留風險,一般 CJK + 常見 emoji 內容已對齊)。
-- Android APK 未隨此版重出;含 D-28 的 Android build 待下一次發版。Windows 桌面亦未重出,續用 v0.1.4。
+- Android APK 未隨此版重出;含 D-28 的 Android build 待下一次發版。
