@@ -66,7 +66,14 @@
   - **根因**:attach 當下送給 tmux 的 `cols/rows` 對不上 xterm 實際可見寬度。非全寬(desktop sidebar 開 / Android 軟鍵盤)時,`start()` 裡那次**同步 fit** 在佈局定案前跑,`FitAddon` 讀到的 `clientWidth` 是過寬的暫態值 → term.cols 設太寬 → 送太寬的 cols 給 tmux → **tmux 畫得比 xterm 可見寬度寬 → 換行 desync、行頭殘留/散字**。因為容器實際尺寸「沒變」(只是量錯),`ResizeObserver` 不會再 fire,term.cols 就一直錯,直到 owner 手動拖視窗。全寬時剛好量得對(或 xterm ≥ tmux 寬)故正常。confuse.png 其實也是非全寬 → D-28 沒解到這條。
   - **修法**:attach 成功後自動補做「拖視窗那一下」—— `setAttachId` 後 `requestAnimationFrame` + `setTimeout(200ms)` 各跑一次 `syncSize()`:再 `fit()`(此時佈局已穩,量得對)+ 明確 `resizeSession(aid, term.cols, term.rows)`。佈局定案後 fit 會把 term.cols 修正 → 尺寸變 → tmux 重畫 → 對齊。desktop `SessionPanel` + Android `SessionScreen` AttachView 都加(guard `cancelled` / desktop 另 guard `attachIdRef===aid`)。
   - **只動前端** attach 流程,沒動後端 `resize_session`(WindowChange 本來就對)。`tsc` 過。
-  - **驗證**:根因已由 owner「拖一下就正常」實測確認,修法等於自動化那個動作。開發機無 display 跑不了 GUI → **待 owner 實機驗**:非全寬(sidebar 開)fresh attach 一進去就正常、不用再手動拖。
+  - **結果:沒修中(v0.1.8 還是壞)** → 見 D-30。方向對(是尺寸/重畫問題)但機制猜錯(不是「送太寬 cols」)。
+
+- D-30(2026-07-06,owner 回報 v0.1.8 還是壞,附直式螢幕截圖 e.excalidraw):
+  - **新事證**:①「會不會因為我是直式螢幕」②畫面內容**沒被切到右邊**(短行右側一堆空白),而是**大多空白 + 零星單字卡在 col 0**,像 `/clear` 沒清乾淨的殘留碎片。③ owner 在 host shell 跑 `tmux display -p '...'` → **`win=104x94`、`window-size=latest`、單一 client、`aggressive=0`**。
+  - **推翻 D-29 的機制**:`window-size=latest` + 單 client → **tmux 尺寸忠實 = piermux 送的尺寸**(104×94 對直式面板也合理),兩邊其實**一致**、不是「送太寬」。既然尺寸一致就不該 desync —— 除非**首次繪製本身是花的**:attach 時 tmux 內容一邊串進來、xterm 一邊還在 init/reflow(80×24 → 實際尺寸),reflow 弄花 buffer → 殘留碎字。之後**任何一次真正的 resize** 會逼 tmux 全重畫 → 清乾淨(= owner「拖一下就正常」)。D-29 送「相同尺寸」的 resize,tmux 判定沒變 → 不重畫 → 無效。
+  - **修法(D-30)**:attach 後(等 250ms 佈局定案)`fit()` 取正確尺寸,**主動製造一次真正的尺寸變化**逼 tmux 乾淨全重畫 —— 送 `rows-1`,間隔 ~170ms 後再送回 `rows`(兩個分開的 `setTimeout`,中間留間隔確保 tmux 兩次都真重畫、不被合併成 no-op)。等於自動做 owner「手動拖一下」。desktop `SessionPanel` + Android `SessionScreen` 都改。另 **header 顯示 `cols×rows`**(useful + 診斷:萬一還沒中,owner 截圖就能看到 term 尺寸對不對)。
+  - **只動前端**。`tsc` 過。
+  - **驗證**:機制已由 owner「拖一下(尺寸有變)就乾淨」實測確認,修法=自動化那動作。開發機無 display → **待 owner 實機驗**:直式/非全寬 fresh attach 一進去就乾淨、不用手動拖。若還壞,header 的 `cols×rows` 數字直接告訴我 term 尺寸是否合理。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**

@@ -47,6 +47,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // shell 永遠 attach mode(沒有 tmux capture-pane 概念)。tmux 預設 attach(D-10)
   const [mode, setMode] = React.useState<Mode>("attach");
   const [attachId, setAttachId] = React.useState<string | null>(null);
+  // 終端目前尺寸(cols×rows)— header 顯示,兼作 desync 診斷用(D-30)
+  const [termDims, setTermDims] = React.useState<{ cols: number; rows: number } | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
 
@@ -170,6 +172,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
     const term = xtermRef.current;
     if (!term) return;
     const disp = term.onResize(({ cols, rows }) => {
+      setTermDims({ cols, rows });
       if (mode === "attach" && attachId) {
         api.resizeSession(attachId, cols, rows).catch((err) => {
           console.warn("[SessionPanel] resizeSession failed", err);
@@ -272,24 +275,38 @@ export function SessionPanel({ host, target, onBack }: Props) {
         setAttachId(aid);
         attachIdRef.current = aid;
 
-        // D-29:attach 後強制再 fit + resize,讓 tmux 用 xterm「實際可見寬度」重畫。
-        // 非全寬(sidebar 開)時 start() 裡那次同步 fit 可能在佈局定案前跑、讀到
-        // 過寬的 cols → 送錯給 tmux → tmux 畫得比 xterm 寬 → 換行 desync、行頭殘留字。
-        // 之後沒東西自動修正,直到使用者手動拖視窗(拖一下就正常 = 觸發 fit→resize→
-        // 重畫)。這裡自動補做:rAF 抓一次、200ms 再抓一次涵蓋 layout / sidebar 動畫。
+        // D-30:attach 後主動「微調一次尺寸」逼 tmux 乾淨全重畫。
+        // 修正 D-29 的方向:實測 tmux window-size=latest 單 client,tmux 尺寸忠實
+        // = piermux 送的尺寸,兩邊其實一致(如 104×94)。真正問題是 attach 首次
+        // 繪製發生在 xterm 還在 init/reflow(80×24 → 實際尺寸)時,tmux 內容一邊
+        // 串進來一邊 reflow → 殘留花屏 / col 0 碎字。而送「相同尺寸」的 resize tmux
+        // 不會重畫(D-29 因此無效);owner 實測「手動拖一下(尺寸真的有變)就乾淨」。
+        // 這裡自動做那一下:fit 取正確尺寸後,送 rows-1 再送回 rows,製造一次真正的
+        // 尺寸變化 → tmux 全重畫清掉殘留。等佈局定案(portrait / sidebar 動畫)後做,
+        // 250ms 一次即可(後續容器變化由 ResizeObserver 接)。
         const attachedId = aid;
-        const syncSize = () => {
-          const t = xtermRef.current;
-          if (!t || cancelled || attachIdRef.current !== attachedId) return;
+        const stillCurrent = () =>
+          !cancelled && attachIdRef.current === attachedId && !!xtermRef.current;
+        // 250ms:等佈局定案後 fit 取正確尺寸,先送 rows-1(逼一次重畫)。
+        setTimeout(() => {
+          if (!stillCurrent()) return;
           try {
             fitRef.current?.fit();
           } catch {
-            // layout 未穩,下一次再試
+            // layout 未穩
           }
+          const t = xtermRef.current!;
+          api
+            .resizeSession(attachedId, t.cols, Math.max(1, t.rows - 1))
+            .catch(() => {});
+        }, 250);
+        // 420ms:再送回正確尺寸(再一次重畫)。中間留間隔確保 tmux 兩次都真重畫、
+        // 不被合併成 no-op。等於自動做 owner「手動拖一下」的乾淨全重畫。
+        setTimeout(() => {
+          if (!stillCurrent()) return;
+          const t = xtermRef.current!;
           api.resizeSession(attachedId, t.cols, t.rows).catch(() => {});
-        };
-        requestAnimationFrame(syncSize);
-        setTimeout(syncSize, 200);
+        }, 420);
 
         unlistenOutput = await listen<string>(
           `attach-output-${aid}`,
@@ -447,6 +464,14 @@ export function SessionPanel({ host, target, onBack }: Props) {
                 <>
                   {" · "}attach id{" "}
                   <code className="font-mono">{attachId.slice(0, 8)}</code>
+                </>
+              )}
+              {termDims && (
+                <>
+                  {" · "}
+                  <code className="font-mono">
+                    {termDims.cols}×{termDims.rows}
+                  </code>
                 </>
               )}
             </div>

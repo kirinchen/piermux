@@ -491,22 +491,30 @@ function AttachView({
         }
         setAttachId(aid);
 
-        // D-29:attach 後強制再 fit + resize,讓 tmux 用 xterm 實際可見寬度重畫。
-        // 初次 fit 可能在佈局(軟鍵盤 / 容器)定案前跑、讀到過寬 cols → 送錯給
-        // tmux → tmux 畫得比 xterm 寬 → 換行 desync、行頭殘留字。rAF + 200ms 補做。
+        // D-30:attach 後主動「微調一次尺寸」逼 tmux 乾淨全重畫(同 desktop）。
+        // attach 首次繪製常在 xterm 還在 init/reflow(80×24 → 實際尺寸)時發生 →
+        // 殘留花屏 / col 0 碎字;送「相同尺寸」的 resize tmux 不會重畫。fit 取正確
+        // 尺寸後,送 rows-1 再送回 rows 製造一次真正尺寸變化 → tmux 全重畫清殘留。
         const attachedId = aid;
-        const syncSize = () => {
+        // 250ms:fit 取正確尺寸,先送 rows-1(逼一次重畫);420ms 再送回正確尺寸
+        // (再一次重畫)。中間留間隔確保 tmux 兩次都真重畫,不被合併成 no-op。
+        setTimeout(() => {
           const t = xtermRef.current;
           if (!t || cancelled) return;
           try {
             fitRef.current?.fit();
           } catch {
-            // layout 未穩,下一次再試
+            // layout 未穩
           }
+          api
+            .resizeSession(attachedId, t.cols, Math.max(1, t.rows - 1))
+            .catch(() => {});
+        }, 250);
+        setTimeout(() => {
+          const t = xtermRef.current;
+          if (!t || cancelled) return;
           api.resizeSession(attachedId, t.cols, t.rows).catch(() => {});
-        };
-        requestAnimationFrame(syncSize);
-        setTimeout(syncSize, 200);
+        }, 420);
 
         unlistenOutput = await listen<string>(`attach-output-${aid}`, (e) => {
           const t = xtermRef.current;
