@@ -473,6 +473,13 @@ function AttachView({
 
     const start = async () => {
       try {
+        // D-32:attach 前先等佈局定案(軟鍵盤 / portrait 容器)再 fit,量到最終
+        // 可見尺寸 → 送對 cols/rows,tmux 第一屏就畫對,不事後 reflow 花屏(同
+        // desktop)。雙 rAF 等一次 layout flush;完全在 attach 前,不碰輸入路徑。
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+        if (cancelled) return;
         try {
           fitRef.current?.fit();
         } catch {
@@ -491,30 +498,10 @@ function AttachView({
         }
         setAttachId(aid);
 
-        // D-30:attach 後主動「微調一次尺寸」逼 tmux 乾淨全重畫(同 desktop）。
-        // attach 首次繪製常在 xterm 還在 init/reflow(80×24 → 實際尺寸)時發生 →
-        // 殘留花屏 / col 0 碎字;送「相同尺寸」的 resize tmux 不會重畫。fit 取正確
-        // 尺寸後,送 rows-1 再送回 rows 製造一次真正尺寸變化 → tmux 全重畫清殘留。
-        const attachedId = aid;
-        // 250ms:fit 取正確尺寸,先送 rows-1(逼一次重畫);420ms 再送回正確尺寸
-        // (再一次重畫)。中間留間隔確保 tmux 兩次都真重畫,不被合併成 no-op。
-        setTimeout(() => {
-          const t = xtermRef.current;
-          if (!t || cancelled) return;
-          try {
-            fitRef.current?.fit();
-          } catch {
-            // layout 未穩
-          }
-          api
-            .resizeSession(attachedId, t.cols, Math.max(1, t.rows - 1))
-            .catch(() => {});
-        }, 250);
-        setTimeout(() => {
-          const t = xtermRef.current;
-          if (!t || cancelled) return;
-          api.resizeSession(attachedId, t.cols, t.rows).catch(() => {});
-        }, 420);
+        // D-31:移除 D-29/D-30 的「attach 後 nudge 尺寸」(同 desktop)。那招在
+        // attach 後 250~420ms 送 rows-1 再送回,撞上使用者 attach 完馬上打字/貼上
+        // → tmux 重繪與輸入交錯 → 多空白、貼上不全。回到 v0.1.7 行為:attach 前
+        // fit 一次、之後靠 ResizeObserver。非全寬花屏用手動拖視窗 workaround。
 
         unlistenOutput = await listen<string>(`attach-output-${aid}`, (e) => {
           const t = xtermRef.current;

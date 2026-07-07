@@ -245,11 +245,17 @@ export function SessionPanel({ host, target, onBack }: Props) {
 
     const start = async () => {
       try {
-        // 在送 attach 之前強制 fit() 一次 — init effect 用 requestAnimationFrame
-        // 排 fit,可能在這個 attach effect 跑時還沒 fire,導致 term.cols/rows 還是
-        // 預設 80x24。tmux attach 第一次重畫用我們送的 cols/rows,送錯就只畫那麼大,
-        // 之後 resize 也補不回 history。Owner 反映「要先 detach 再 attach 才正常」
-        // = 第二次重 attach 時 fit 已經做過,讀到對的尺寸
+        // D-32:attach「之前」先等佈局定案再 fit,確保量到的是最終可見尺寸
+        // (非全寬 / sidebar 佔位時尤其重要)。舊版「attach effect 一觸發就同步 fit」
+        // 常在容器 layout 定案前跑、讀到過寬 cols(D-29 診斷)→ 送太寬給 tmux →
+        // tmux 第一屏畫太寬、之後 reflow → 花屏 / 行頭殘字 / 換行錯位(字寬像跑掉)。
+        // 用雙 rAF 等一次 layout flush 後再量,送對 cols/rows,tmux 第一屏就畫對,
+        // 不必事後補畫。完全在 attach 前做,不碰 attach 後輸入路徑(D-31 移除的
+        // nudge 不加回,輸入保持乾淨)。
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+        if (cancelled) return;
         try {
           fitRef.current?.fit();
         } catch {
@@ -275,38 +281,12 @@ export function SessionPanel({ host, target, onBack }: Props) {
         setAttachId(aid);
         attachIdRef.current = aid;
 
-        // D-30:attach 後主動「微調一次尺寸」逼 tmux 乾淨全重畫。
-        // 修正 D-29 的方向:實測 tmux window-size=latest 單 client,tmux 尺寸忠實
-        // = piermux 送的尺寸,兩邊其實一致(如 104×94)。真正問題是 attach 首次
-        // 繪製發生在 xterm 還在 init/reflow(80×24 → 實際尺寸)時,tmux 內容一邊
-        // 串進來一邊 reflow → 殘留花屏 / col 0 碎字。而送「相同尺寸」的 resize tmux
-        // 不會重畫(D-29 因此無效);owner 實測「手動拖一下(尺寸真的有變)就乾淨」。
-        // 這裡自動做那一下:fit 取正確尺寸後,送 rows-1 再送回 rows,製造一次真正的
-        // 尺寸變化 → tmux 全重畫清掉殘留。等佈局定案(portrait / sidebar 動畫)後做,
-        // 250ms 一次即可(後續容器變化由 ResizeObserver 接)。
-        const attachedId = aid;
-        const stillCurrent = () =>
-          !cancelled && attachIdRef.current === attachedId && !!xtermRef.current;
-        // 250ms:等佈局定案後 fit 取正確尺寸,先送 rows-1(逼一次重畫)。
-        setTimeout(() => {
-          if (!stillCurrent()) return;
-          try {
-            fitRef.current?.fit();
-          } catch {
-            // layout 未穩
-          }
-          const t = xtermRef.current!;
-          api
-            .resizeSession(attachedId, t.cols, Math.max(1, t.rows - 1))
-            .catch(() => {});
-        }, 250);
-        // 420ms:再送回正確尺寸(再一次重畫)。中間留間隔確保 tmux 兩次都真重畫、
-        // 不被合併成 no-op。等於自動做 owner「手動拖一下」的乾淨全重畫。
-        setTimeout(() => {
-          if (!stillCurrent()) return;
-          const t = xtermRef.current!;
-          api.resizeSession(attachedId, t.cols, t.rows).catch(() => {});
-        }, 420);
+        // D-31:移除 D-29/D-30 的「attach 後 nudge 尺寸」。那招(D-30 送 rows-1 再
+        // 送回 rows 逼 tmux 全重畫)在 attach 後 250~420ms 內跑,正好撞上使用者
+        // attach 完馬上打字/貼上 → tmux 重繪輸出 + reflow 與輸入交錯 → 多空白、
+        // 貼上不全(核心輸入賣點壞掉,owner 回報 v0.1.8/v0.1.9 兩者都中)。
+        // 回到 v0.1.7 行為:attach 前 fit 一次、之後靠 ResizeObserver;非全寬花屏
+        // 用手動拖視窗 workaround,待日後找不干擾輸入的解法。輸入正確優先。
 
         unlistenOutput = await listen<string>(
           `attach-output-${aid}`,

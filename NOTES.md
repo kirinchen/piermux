@@ -74,6 +74,18 @@
   - **修法(D-30)**:attach 後(等 250ms 佈局定案)`fit()` 取正確尺寸,**主動製造一次真正的尺寸變化**逼 tmux 乾淨全重畫 —— 送 `rows-1`,間隔 ~170ms 後再送回 `rows`(兩個分開的 `setTimeout`,中間留間隔確保 tmux 兩次都真重畫、不被合併成 no-op)。等於自動做 owner「手動拖一下」。desktop `SessionPanel` + Android `SessionScreen` 都改。另 **header 顯示 `cols×rows`**(useful + 診斷:萬一還沒中,owner 截圖就能看到 term 尺寸對不對)。
   - **只動前端**。`tsc` 過。
   - **驗證**:機制已由 owner「拖一下(尺寸有變)就乾淨」實測確認,修法=自動化那動作。開發機無 display → **待 owner 實機驗**:直式/非全寬 fresh attach 一進去就乾淨、不用手動拖。若還壞,header 的 `cols×rows` 數字直接告訴我 term 尺寸是否合理。
+  - **⚠️ 後果(D-31 推翻)**:這招搞壞了核心輸入 —— 見 D-31。
+
+- D-31(2026-07-06,owner 回報 v0.1.8/v0.1.9「輸入很不穩、多出很多空白、貼上不完全」,desktop + Android 兩者都中):
+  - **根因**:D-29/D-30 的「attach 後 nudge 尺寸」(尤其 D-30 送 `rows-1` 再送回 `rows`,在 attach 後 250~420ms 內跑)正好撞上使用者 **attach 完馬上打字/貼上** → tmux 全螢幕重繪輸出 + reflow 與使用者輸入交錯 → 多空白、貼上被吃掉。每次 attach 都重演,所以「輸入時」一直中。
+  - **修法**:移除 desktop `SessionPanel` + Android `SessionScreen` 的 attach 後 nudge,**回到 v0.1.7 的 attach 尺寸行為**(attach 前 fit 一次、之後靠 ResizeObserver)。header 的 `cols×rows` 顯示保留(無害、診斷用)。
+  - **紅線筆記**:輸入是 SPEC 核心賣點。D-29/D-30 為修「非全寬花屏」動了 attach 尺寸流程,連累輸入 —— 教訓:碰 attach 流程要優先確認不干擾 attach 後的輸入。
+  - **驗證**:owner 本機 dev 實測「輸入好很多了 / 沒問題」✓(2026-07-06)。
+
+- D-32(2026-07-06,owner:輸入修好了,但「字寬有點跑掉」+ 仍要修非全寬花屏):
+  - **判斷同源**:非全寬花屏 + 字寬跑掉都是「attach 送給 tmux 的尺寸就是錯的」的表現 —— sidebar 佔寬、xterm 首次 fit 在容器 layout 定案前跑(D-29 診斷的「讀到過寬 cols」)→ tmux 用錯寬度畫第一屏 → 換行錯位(像字寬跑掉)+ 殘留碎字(花屏)。D-30 的 nudge 是「事後強制重畫」蓋掉它,代價是搞壞輸入。
+  - **正解(不碰輸入)**:把 fit 時機從「attach effect 一觸發就同步 fit」改成 **attach「之前」等一次 layout flush(雙 `requestAnimationFrame`)再 fit**,量到最終可見尺寸 → 送對 cols/rows → tmux 第一屏就畫對,不必事後補畫。完全在 attach 前做,不加回 nudge、不碰輸入路徑。desktop + Android 都改。
+  - **只動前端**。`tsc` 過。owner 本機 dev 實測 OK(2026-07-06)。若非全寬 fresh attach 仍有殘留(雙 rAF 不夠涵蓋 sidebar 動畫),下一步改等容器 clientWidth 穩定或 ResizeObserver 首次 fire 後再 attach。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
