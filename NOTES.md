@@ -87,6 +87,12 @@
   - **正解(不碰輸入)**:把 fit 時機從「attach effect 一觸發就同步 fit」改成 **attach「之前」等一次 layout flush(雙 `requestAnimationFrame`)再 fit**,量到最終可見尺寸 → 送對 cols/rows → tmux 第一屏就畫對,不必事後補畫。完全在 attach 前做,不加回 nudge、不碰輸入路徑。desktop + Android 都改。
   - **只動前端**。`tsc` 過。owner 本機 dev 實測 OK(2026-07-06)。若非全寬 fresh attach 仍有殘留(雙 rAF 不夠涵蓋 sidebar 動畫),下一步改等容器 clientWidth 穩定或 ResizeObserver 首次 fire 後再 attach。
 
+- D-33(2026-07-11,owner 回報 attach 滾輪失效、右上 tmux copy-mode 顯示 `0/0`,附 sc.png,Tabby 卻能捲):
+  - **現象**:attach 到跑 claude code 的 tmux session,滾滑鼠滾輪沒反應,tmux copy-mode 指示器 `[0/0]`(位置 0 / 歷史 0 行)。同一 session 用 Tabby 能正常捲。
+  - **根因**:D-24 的 `attachCustomWheelEventHandler` 邏輯是「xterm 在 alt-screen 就一律吞掉滾輪、改叫 `scroll_session` 跑 tmux copy-mode」。但 tmux attach 本身就讓 client 進 alt-screen(`1049h`),所以**不管 inner app 是什麼都會走 copy-mode**。當 inner app 是 claude code / vim / less 這種**自己開 mouse tracking 的全螢幕 TUI** 時:(1) app 的畫面在 tmux 裡沒有 tmux 層 scrollback → copy-mode 進去也 `0/0` 滾不動;(2) 使用者其實想捲的是 app 自己的內容,該把滾輪交給 app。Tabby 就是把滾輪轉成 mouse event 送給 app,所以能捲。
+  - **修法**:wheel handler 在 alt-screen 分支多一道判斷 —— `term.modes.mouseTrackingMode !== 'none'`(app 有開 mouse tracking,或 tmux `mouse on`)就 **return true 放行**,讓 xterm 把滾輪轉成 mouse event 走 `onData → writeToSession → PTY → tmux → app`(等同 Tabby / 一般終端機)。只有 app **沒**開 mouse(純 bash shell 想看 tmux 歷史)時才維持 D-24 的 copy-mode 路。**不碰輸入/line-buffer 路徑**,輸入賣點不受影響;D-24 對純 shell 的行為完全保留。
+  - **只動 desktop 前端**(`SessionPanel.tsx` 一個 if)。`tsc` + `npm run build` 過。**未實機驗** — 待 owner 在跑 claude/vim 的 tmux session 確認滾輪能順順捲 app 內容,且純 bash shell 仍能用 tmux copy-mode 看歷史。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK

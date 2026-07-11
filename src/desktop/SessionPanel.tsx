@@ -132,6 +132,13 @@ export function SessionPanel({ host, target, onBack }: Props) {
       // 只在 alt-screen 接管;normal buffer 走 xterm 預設(滾自己的 scrollback)
       if (term.buffer.active.type !== "alternate") return true;
       if (!attachIdRef.current) return true; // 還沒 attach,別吞滾輪
+      // D-33:inner app(claude code / vim / less、或 tmux `mouse on`)自己開了
+      // mouse tracking → 這顆滾輪該交給它,放行讓 xterm 轉成 mouse event 走
+      // onData → PTY → tmux → app 自己捲(等同 Tabby / 一般終端機行為)。
+      // D-24 的 tmux copy-mode 只在「app 沒開 mouse」時當看 tmux 歷史的路 —
+      // 否則 alt-screen app 在 tmux 裡沒有 tmux 層 scrollback,copy-mode 會 0/0
+      // 滾了沒反應(owner 回報 sc.png)。不碰輸入路徑,輸入賣點不受影響。
+      if (term.modes.mouseTrackingMode !== "none") return true;
       // deltaMode 1=行、2=頁,其餘當 pixel(一格 ~100px);每 tick 捲 3 行
       const ticks =
         e.deltaMode === 1
