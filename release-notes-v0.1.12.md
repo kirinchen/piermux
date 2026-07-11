@@ -15,7 +15,8 @@
   - `piermux_0.1.12_x64-setup.exe` — NSIS 安裝檔(建議)
   - `piermux_0.1.12_x64_en-US.msi` — MSI(批次部署用)
   - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
-- **Linux / Android** — 待 owner 在 Linux 補上(`.deb` / `.AppImage` / `.apk`)。
+- **Android** — `piermux-android-v0.1.12.apk`(universal,離線可跑)
+- **Linux** — 待 owner 在 Linux 補上(`.deb` / `.AppImage`)。
 
 ## Known limitations
 
