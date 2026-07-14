@@ -358,6 +358,44 @@ export function SessionPanel({ host, target, onBack }: Props) {
     };
   }, [mode, host.id, targetId, target, onBack]);
 
+  // D-34:F5 / 重繪鈕 = 手動強制重繪。行頭殘字(tmux 與 xterm 字寬算法在部分
+  // 字元上不一致,tmux 絕對定位補畫時蓋不到舊字)目前無法根治 —— 寬度表跟各
+  // host 的 tmux 版本綁定。owner 觀察「resize 一下就好」,所以模擬 resize:
+  // 對 tmux 送 rows-1 → rows 兩次 SIGWINCH 逼整屏重畫。與 D-30 自動 nudge 不同,
+  // 這是使用者主動觸發,不會撞輸入。
+  const redrawInflightRef = React.useRef(false);
+  const forceRedraw = React.useCallback(async () => {
+    const aid = attachIdRef.current;
+    const term = xtermRef.current;
+    if (!aid || !term || redrawInflightRef.current) return;
+    redrawInflightRef.current = true;
+    try {
+      const { cols, rows } = term;
+      await api.resizeSession(aid, cols, rows > 1 ? rows - 1 : rows + 1);
+      await api.resizeSession(aid, cols, rows);
+      // 順手叫 renderer 把現有 buffer 全行重畫(防純 render 層殘影)
+      term.refresh(0, term.rows - 1);
+    } catch (err) {
+      console.warn("[SessionPanel] forceRedraw failed", err);
+    } finally {
+      redrawInflightRef.current = false;
+    }
+  }, []);
+
+  // F5 → forceRedraw。capture phase 攔:preventDefault 防 webview 整頁 reload,
+  // stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
+  React.useEffect(() => {
+    if (mode !== "attach" || !attachId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "F5") return;
+      e.preventDefault();
+      e.stopPropagation();
+      void forceRedraw();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [mode, attachId, forceRedraw]);
+
   const handleRefresh = async () => {
     if (target.kind !== "tmux") return;
     const sessionName = target.session.name;
@@ -479,6 +517,17 @@ export function SessionPanel({ host, target, onBack }: Props) {
                 <RefreshCw className="h-4 w-4" />
               )}
               Refresh
+            </Button>
+          )}
+          {mode === "attach" && attachId && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void forceRedraw()}
+              title="強制重繪(F5)— 畫面出現行頭殘字時按這個"
+            >
+              <RefreshCw className="h-4 w-4" />
+              重繪
             </Button>
           )}
           <Button

@@ -92,6 +92,14 @@
   - **根因**:D-24 的 `attachCustomWheelEventHandler` 邏輯是「xterm 在 alt-screen 就一律吞掉滾輪、改叫 `scroll_session` 跑 tmux copy-mode」。但 tmux attach 本身就讓 client 進 alt-screen(`1049h`),所以**不管 inner app 是什麼都會走 copy-mode**。當 inner app 是 claude code / vim / less 這種**自己開 mouse tracking 的全螢幕 TUI** 時:(1) app 的畫面在 tmux 裡沒有 tmux 層 scrollback → copy-mode 進去也 `0/0` 滾不動;(2) 使用者其實想捲的是 app 自己的內容,該把滾輪交給 app。Tabby 就是把滾輪轉成 mouse event 送給 app,所以能捲。
   - **修法**:wheel handler 在 alt-screen 分支多一道判斷 —— `term.modes.mouseTrackingMode !== 'none'`(app 有開 mouse tracking,或 tmux `mouse on`)就 **return true 放行**,讓 xterm 把滾輪轉成 mouse event 走 `onData → writeToSession → PTY → tmux → app`(等同 Tabby / 一般終端機)。只有 app **沒**開 mouse(純 bash shell 想看 tmux 歷史)時才維持 D-24 的 copy-mode 路。**不碰輸入/line-buffer 路徑**,輸入賣點不受影響;D-24 對純 shell 的行為完全保留。
   - **只動 desktop 前端**(`SessionPanel.tsx` 一個 if)。`tsc` + `npm run build` 過。**未實機驗** — 待 owner 在跑 claude/vim 的 tmux session 確認滾輪能順順捲 app 內容,且純 bash shell 仍能用 tmux copy-mode 看歷史。
+  - **實機驗 ✓**(2026-07-12,owner dev 實測「修好了」)→ 已隨 v0.1.12 發版。
+
+- D-34(2026-07-14,owner 回報 attach 畫面 update / 滾輪後行頭多出殘字,附 err.png;殘字滑鼠選不到;resize 一下就會好):
+  - **現象**:attach 到跑 claude code 的 session,每次畫面更新或滾輪後,部分行的行頭多出重複/殘留字元(例:「URURL」「驗驗證」「去去看」,首字被重複一次)。手動拉一下視窗大小就恢復正常。
+  - **根因判斷**:tmux 與 xterm 對部分字元(CJK / emoji / ambiguous width)的**字寬計算不一致** —— tmux 用絕對游標定位做部分補畫時,起始欄位跟 xterm 實際排的位置差 1~2 欄,行頭舊字蓋不到就殘留。D-28 已對齊過一版寬度表,但寬度表跟 **server 端 tmux 版本** 綁定(每台 host 可能不同版),無法一勞永逸根治。「殘字選不到」是因為 claude code 開了 mouse tracking,xterm 的滑鼠選取要按 Shift 才會生效,不是 render 假影的鐵證。
+  - **修法(workaround,owner 指定)**:desktop `SessionPanel` attach 模式加 **F5 = 強制重繪** + header 一顆「重繪」鈕。實作 = 模擬 owner 觀察到有效的 resize:對 tmux 送 `rows-1` → `rows` 兩次 `resize_session`(SIGWINCH)逼 tmux 整屏重畫,外加 `term.refresh(0, rows-1)` 重畫 renderer。F5 用 window capture-phase 攔截:`preventDefault`(防 webview reload)+ `stopPropagation`(防 xterm 把 F5 = `\x1b[15~` 送進 PTY)→ **attach 中 F5 不再傳給 inner app**(vim 等若有綁 F5 會收不到,取捨:owner 指定 F5)。
+  - **與 D-30 的差異**:D-30 的 nudge 是 attach 後自動跑、撞到輸入被拔掉(D-31);這次是**使用者主動觸發**,不會在打字瞬間自己發動,不碰輸入紅線。in-flight guard 防連按重疊。
+  - **只動 desktop 前端**。根治方向(日後):偵測 host tmux 版本動態調寬度表,或改用 tmux control mode。**未實機驗** — 待 owner 遇到殘字時按 F5 確認會清乾淨。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
