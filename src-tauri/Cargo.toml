@@ -1,6 +1,6 @@
 [package]
 name = "piermux"
-version = "0.1.12"
+version = "0.1.13"
 description = "Cross-platform tmux session GUI — quick attach across multiple hosts"
 authors = ["kirin"]
 edition = "2021"

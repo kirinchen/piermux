@@ -99,7 +99,8 @@
   - **根因判斷**:tmux 與 xterm 對部分字元(CJK / emoji / ambiguous width)的**字寬計算不一致** —— tmux 用絕對游標定位做部分補畫時,起始欄位跟 xterm 實際排的位置差 1~2 欄,行頭舊字蓋不到就殘留。D-28 已對齊過一版寬度表,但寬度表跟 **server 端 tmux 版本** 綁定(每台 host 可能不同版),無法一勞永逸根治。「殘字選不到」是因為 claude code 開了 mouse tracking,xterm 的滑鼠選取要按 Shift 才會生效,不是 render 假影的鐵證。
   - **修法(workaround,owner 指定)**:desktop `SessionPanel` attach 模式加 **F5 = 強制重繪** + header 一顆「重繪」鈕。實作 = 模擬 owner 觀察到有效的 resize:對 tmux 送 `rows-1` → `rows` 兩次 `resize_session`(SIGWINCH)逼 tmux 整屏重畫,外加 `term.refresh(0, rows-1)` 重畫 renderer。F5 用 window capture-phase 攔截:`preventDefault`(防 webview reload)+ `stopPropagation`(防 xterm 把 F5 = `\x1b[15~` 送進 PTY)→ **attach 中 F5 不再傳給 inner app**(vim 等若有綁 F5 會收不到,取捨:owner 指定 F5)。
   - **與 D-30 的差異**:D-30 的 nudge 是 attach 後自動跑、撞到輸入被拔掉(D-31);這次是**使用者主動觸發**,不會在打字瞬間自己發動,不碰輸入紅線。in-flight guard 防連按重疊。
-  - **只動 desktop 前端**。根治方向(日後):偵測 host tmux 版本動態調寬度表,或改用 tmux control mode。**未實機驗** — 待 owner 遇到殘字時按 F5 確認會清乾淨。
+  - **只動 desktop 前端**。根治方向(日後):偵測 host tmux 版本動態調寬度表,或改用 tmux control mode。
+  - **實機驗 ✓**(2026-07-14,owner dev 實測:殘字仍會出現但 F5 能清掉,可用)→ 隨 v0.1.13 發版。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
