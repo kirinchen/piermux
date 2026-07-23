@@ -7,6 +7,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "../lib/osc52";
 import { installUnicodeWidths } from "../lib/xterm-unicode";
+import { installWebLinks } from "../lib/xterm-links";
+import { fontSizeFor, getTermPrefs } from "../lib/term-prefs";
+import { useTermFontSync } from "../lib/useTermPrefs";
 import {
   Terminal as TerminalIcon,
   RefreshCw,
@@ -19,6 +22,9 @@ import { toast } from "sonner";
 import type { CaptureResult, Host, Session } from "@/lib/types";
 import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
+
+// grid 的 mini cell 一律比使用者設定的主字級小 2px(要塞多個 cell 看 overview)
+const MINI_FONT_DELTA = -2;
 
 type Props = {
   host: Host;
@@ -36,10 +42,11 @@ export function CaptureCell({ host, session, onExpand }: Props) {
 
   React.useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
+    // grid mini cell 比主終端小 2px(D-35 之前寫死 11 = 主 13 - 2,維持相對關係)
+    const prefs = getTermPrefs();
     const term = new XTerm({
-      fontFamily:
-        '"JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 11,
+      fontFamily: prefs.fontFamily,
+      fontSize: fontSizeFor(prefs, MINI_FONT_DELTA),
       lineHeight: 1.15,
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
@@ -54,6 +61,8 @@ export function CaptureCell({ host, session, onExpand }: Props) {
     installUnicodeWidths(term);
     // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
     installOsc52Handler(term);
+    // 網址點一下開系統瀏覽器(D-36)
+    installWebLinks(term);
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
@@ -71,6 +80,9 @@ export function CaptureCell({ host, session, onExpand }: Props) {
       fitRef.current = null;
     };
   }, []);
+
+  // 設定面板改字型 / 字級 → 即時套用 + refit(D-35)
+  useTermFontSync(xtermRef, fitRef, MINI_FONT_DELTA);
 
   React.useEffect(() => {
     if (!containerRef.current) return;

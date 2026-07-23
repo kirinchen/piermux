@@ -3,6 +3,7 @@ import { HostListScreen } from "./HostListScreen";
 import { SessionListScreen } from "./SessionListScreen";
 import { SessionScreen } from "./SessionScreen";
 import { AndroidHostFormScreen } from "./AndroidHostFormScreen";
+import { SettingsScreen } from "./SettingsScreen";
 import { useAndroidBack } from "./useAndroidBack";
 import type { Host } from "@/lib/types";
 
@@ -14,7 +15,8 @@ type Screen =
   | { kind: "host-list" }
   | { kind: "host-form"; editing: Host | null }
   | { kind: "session-list"; hostId: string }
-  | { kind: "session"; hostId: string; target: AndroidTarget };
+  | { kind: "session"; hostId: string; target: AndroidTarget }
+  | { kind: "settings" };
 
 export function AndroidApp() {
   const [stack, setStack] = useState<Screen[]>([{ kind: "host-list" }]);
@@ -39,8 +41,11 @@ export function AndroidApp() {
           onSelectHost={(hostId) => push({ kind: "session-list", hostId })}
           onAddHost={() => push({ kind: "host-form", editing: null })}
           onEditHost={(host) => push({ kind: "host-form", editing: host })}
+          onOpenSettings={() => push({ kind: "settings" })}
         />
       );
+    case "settings":
+      return <SettingsScreen onBack={pop} />;
     case "host-form":
       return (
         <AndroidHostFormScreen editing={current.editing} onClose={pop} />

@@ -4,6 +4,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "@/lib/osc52";
 import { installUnicodeWidths } from "@/lib/xterm-unicode";
+import { installWebLinks } from "@/lib/xterm-links";
+import { fontSizeFor, getTermPrefs } from "@/lib/term-prefs";
+import { useTermFontSync } from "@/lib/useTermPrefs";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 
@@ -19,6 +22,10 @@ import { PasteConfirmDialog } from "@/components/PasteConfirmDialog";
 import { usePasteGuard } from "@/components/usePasteGuard";
 
 type Mode = "capture" | "attach";
+
+// Android attach 畫面比 capture 小 1px(D-35 之前寫死 12 = 主 13 - 1),
+// 手機寬度有限,attach 要塞得下 tmux 的 cols
+const ATTACH_FONT_DELTA = -1;
 
 type Props = {
   hostId: string;
@@ -125,10 +132,11 @@ function CaptureView({
 
   useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
+    // 字型 / 字級走使用者偏好(D-35),建構當下同步讀
+    const prefs = getTermPrefs();
     const term = new XTerm({
-      fontFamily:
-        '"JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
+      fontFamily: prefs.fontFamily,
+      fontSize: fontSizeFor(prefs),
       lineHeight: 1.2,
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
@@ -143,6 +151,8 @@ function CaptureView({
     installUnicodeWidths(term);
     // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
     installOsc52Handler(term);
+    // 網址點一下開系統瀏覽器(D-36)
+    installWebLinks(term);
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
@@ -159,6 +169,9 @@ function CaptureView({
       fitRef.current = null;
     };
   }, []);
+
+  // 設定畫面改字型 / 字級 → 即時套用 + refit(D-35)
+  useTermFontSync(xtermRef, fitRef);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -339,10 +352,11 @@ function AttachView({
   // xterm 初始化(只一次)
   useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
+    // 字型 / 字級走使用者偏好(D-35),attach 比 capture 小 1px
+    const prefs = getTermPrefs();
     const term = new XTerm({
-      fontFamily:
-        '"JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 12,
+      fontFamily: prefs.fontFamily,
+      fontSize: fontSizeFor(prefs, ATTACH_FONT_DELTA),
       lineHeight: 1.2,
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
@@ -358,6 +372,8 @@ function AttachView({
     installUnicodeWidths(term);
     // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
     installOsc52Handler(term);
+    // 網址點一下開系統瀏覽器(D-36)
+    installWebLinks(term);
     term.open(containerRef.current);
     xtermRef.current = term;
     fitRef.current = fit;
@@ -414,6 +430,10 @@ function AttachView({
       fitRef.current = null;
     };
   }, []);
+
+  // 設定畫面改字型 / 字級 → 即時套用 + refit(D-35)。refit 後的 cols/rows 由
+  // onResize 傳給 backend,tmux 會跟著換尺寸。
+  useTermFontSync(xtermRef, fitRef, ATTACH_FONT_DELTA);
 
   // 容器 resize + soft keyboard 收放 → visualViewport 觸發
   useEffect(() => {

@@ -21,6 +21,10 @@ pub fn run() {
         // (`src/lib/osc52.ts` registers an xterm.js OSC 52 handler that calls
         //  this plugin's writeText)
         .plugin(tauri_plugin_clipboard_manager::init())
+        // opener: 終端裡的網址點一下用 OS 預設瀏覽器開(D-36)。
+        // `src/lib/xterm-links.ts` 的 WebLinksAddon handler 呼叫這個 plugin 的
+        // openUrl —— 只放行 http/https,capability scope 再擋一層。
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("resolve app_data_dir");
             // Android secret 後端要知道 app 私有資料夾(desktop 走 keyring,無害)

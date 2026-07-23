@@ -102,6 +102,23 @@
   - **只動 desktop 前端**。根治方向(日後):偵測 host tmux 版本動態調寬度表,或改用 tmux control mode。
   - **實機驗 ✓**(2026-07-14,owner dev 實測:殘字仍會出現但 F5 能清掉,可用)→ 隨 v0.1.13 發版。
 
+- D-35(2026-07-23,owner 要求「可以設定調整字形和大小」):SPEC §11 backlog「設定面板(theme / font size / 預設 input mode)」的第一刀,這版只做**字型 + 字級**。
+  - **存哪**:`localStorage`(key `piermux:termPrefs`),**不是** SPEC §5 的 `ui_preferences` 表。理由:xterm **建構當下**就要拿到值,走 DB 得先 `await` → 會先用預設畫一次再重畫(閃一下,attach 還會多送一次 resize)。localStorage 是同步的,而且 sidebar 收合狀態(`piermux:sidebarCollapsed`)已經用同一套。`ui_preferences` 表維持沒人用;之後真要跨機同步偏好再搬。
+  - **一個值、四個終端**:存**單一** `fontSize`(主字級),各站用固定 delta 保住原本的相對關係 —— desktop attach/capture `+0`(原 13)、grid mini cell `-2`(原 11)、Android attach `-1`(原 12)。這樣預設值跟 D-35 之前寫死的完全一樣,老使用者不會覺得畫面突然變了。範圍夾 8..28。
+  - **即時生效不 remount**:`saveTermPrefs` → 自寫的極簡 store 廣播 → `useTermFontSync` 改 `term.options.fontFamily/fontSize` + `fit()`。**attach 中的 session 不會被踢掉**。用 `useSyncExternalStore`,snapshot 只在真的變動時換 identity。
+  - **對 D-31 紅線的態度**:改字級會 refit → cols/rows 變 → 送 resize 給 tmux,這正是 D-31 禁的那類動作 —— 但差別在**使用者主動去設定面板改的**,不會在 attach 後自動發動、不會撞到「attach 完馬上打字」。同 D-34 F5 的取捨。**attach 流程本身一行沒動。**
+  - **UI**:desktop = header ⚙ → `SettingsDialog`(下拉 10 個 preset + 自訂 CSS font-family + A−/滑桿/A+ + 即時預覽 + 還原預設);Android = host list ⚙ → `SettingsScreen` 全屏(對齊 `AndroidHostFormScreen` 的原生控件 pattern),push 進 stack nav。
+  - **驗證**:`tsc` + `cargo check` + `npx tauri build` 過。store 邏輯用 esbuild 轉出來在 node 實跑 14 條斷言全過(預設值 == 舊寫死的 13/11/12、存讀、訂閱/退訂、夾邊界、空字型退回預設、壞掉的 JSON 不炸)。**GUI 未實機驗**(開發機無 display)。
+  - **已知限制**:字型只能用**這台機器已安裝**的(WebView 不載入外部字型檔);Android 可選的等寬字型通常只有系統內建那幾個。theme / 預設 input mode 還沒做。
+
+- D-36(2026-07-23,owner 要求「如果是 link 可以 click to open browser」):終端裡的 http/https 網址點一下用 **OS 預設瀏覽器**開。
+  - **為什麼要動**:desktop `SessionPanel` 本來就掛了 `WebLinksAddon`,但它預設 handler 是 `window.open` —— 在 Tauri WebView 裡不是被擋就是在 app 內開一個沒 chrome 的視窗,兩種都不是要的。另外三個 xterm(desktop CaptureCell / Android capture / Android attach)**根本沒掛**,網址完全點不了。
+  - **修法**:新增 `lib/xterm-links.ts` 的 `installWebLinks(term)` —— `WebLinksAddon` 帶自訂 handler 走 `tauri-plugin-opener` 的 `openUrl`(Android 端是 Intent → 系統瀏覽器)。四個 xterm 全掛上。
+  - **安全**:終端內容來自遠端,不該讓它誘導我們 open 任意 scheme。前端只放行 `^https?://`,capability 也只給 `opener:allow-open-url` 且 scope 限 `http://*` / `https://*`(**不**用 `opener:default` —— 那組還含 `allow-reveal-item-in-dir` 跟 `mailto:`/`tel:`,用不到就不要)。雙保險,同 OSC 52 的做法。
+  - **新依賴**:`tauri-plugin-opener` 2.5.4(Rust)+ `@tauri-apps/plugin-opener`(JS),`lib.rs` 註冊。
+  - **驗證**:`tsc` + `cargo check` + `npx tauri build` 過(capability 在 bundle 期會被驗)。**點擊行為未實機驗**(無 display)。
+  - **待觀察**:attach 到有開 mouse tracking 的 app(claude code / vim)時,滑鼠點擊會被轉成 mouse event 送給 app —— 那種情況下能不能點到連結還沒實測,必要時可能得改成 Ctrl/Shift+click(對齊 Tabby / Windows Terminal 的慣例)。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK

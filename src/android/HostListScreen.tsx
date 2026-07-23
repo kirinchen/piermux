@@ -9,9 +9,15 @@ type Props = {
   onSelectHost: (hostId: string) => void;
   onAddHost: () => void;
   onEditHost: (host: Host) => void;
+  onOpenSettings: () => void;
 };
 
-export function HostListScreen({ onSelectHost, onAddHost, onEditHost }: Props) {
+export function HostListScreen({
+  onSelectHost,
+  onAddHost,
+  onEditHost,
+  onOpenSettings,
+}: Props) {
   const { data: hosts, isLoading, error } = useHostsList();
   const refreshAll = useRefreshAll();
 
@@ -38,6 +44,14 @@ export function HostListScreen({ onSelectHost, onAddHost, onEditHost }: Props) {
           piermux{appVersion ? ` v${appVersion}` : ""}
         </h1>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            aria-label="終端設定"
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm active:bg-zinc-800"
+          >
+            ⚙
+          </button>
           <button
             type="button"
             onClick={handleRefreshAll}

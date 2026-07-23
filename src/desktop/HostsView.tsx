@@ -5,6 +5,7 @@ import {
   Terminal as TerminalIcon,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 import { HostTree, type Selection } from "./HostTree";
@@ -12,6 +13,7 @@ import { SessionPanel } from "./SessionPanel";
 import { HostCaptureGrid } from "./HostCaptureGrid";
 import { MultiHostCaptureGrid } from "./MultiHostCaptureGrid";
 import { HostFormDialog } from "./HostFormDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import { Button } from "@/components/ui/button";
 import { useRefreshAll } from "@/hooks/useCapture";
 import { getVersion } from "@tauri-apps/api/app";
@@ -22,6 +24,7 @@ const SIDEBAR_KEY = "piermux:sidebarCollapsed";
 export function HostsView() {
   const [selection, setSelection] = React.useState<Selection>(null);
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Host | null>(null);
   // Sidebar 收合狀態,localStorage 持久化
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState<boolean>(
@@ -124,20 +127,31 @@ export function HostsView() {
             </p>
           </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleRefreshAll}
-          disabled={refreshAll.isPending}
-          title="重抓所有 host 所有 session 的 capture"
-        >
-          {refreshAll.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Refresh All
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRefreshAll}
+            disabled={refreshAll.isPending}
+            title="重抓所有 host 所有 session 的 capture"
+          >
+            {refreshAll.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Refresh All
+          </Button>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="終端設定(字型 / 字級)"
+            aria-label="settings"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
@@ -187,6 +201,8 @@ export function HostsView() {
         onOpenChange={setDialogOpen}
         editing={editing}
       />
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import * as React from "react";
 import { Terminal as XTerm, type IDisposable } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "../lib/osc52";
 import { installUnicodeWidths } from "../lib/xterm-unicode";
+import { installWebLinks } from "../lib/xterm-links";
+import { fontSizeFor, getTermPrefs } from "../lib/term-prefs";
+import { useTermFontSync } from "../lib/useTermPrefs";
 import {
   Terminal as TerminalIcon,
   Zap,
@@ -81,10 +83,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // xterm 初始化(每次 SessionPanel mount 一次)
   React.useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
+    // 字型 / 字級走使用者偏好(D-35)。建構當下同步讀,避免先用預設畫一次再重畫。
+    const prefs = getTermPrefs();
     const term = new XTerm({
-      fontFamily:
-        '"JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: 13,
+      fontFamily: prefs.fontFamily,
+      fontSize: fontSizeFor(prefs),
       lineHeight: 1.2,
       theme: { background: "#0a0a0a", foreground: "#e5e5e5" },
       convertEol: true,
@@ -97,7 +100,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.loadAddon(new WebLinksAddon());
+    // 網址點一下開系統瀏覽器(D-36),不是 xterm 預設的 window.open
+    installWebLinks(term);
     // 對齊新版 tmux 的 emoji/CJK 寬度,避免行頭殘留字(D-28)。要在 open/write 前。
     installUnicodeWidths(term);
     // Forward remote OSC 52 (tmux set-clipboard) to host OS clipboard.
@@ -159,6 +163,10 @@ export function SessionPanel({ host, target, onBack }: Props) {
       fitRef.current = null;
     };
   }, []);
+
+  // 設定面板改字型 / 字級 → 即時套用 + refit(D-35)。要放在 xterm 初始化 effect
+  // 之後,這樣第一次 render 時 term 已存在。
+  useTermFontSync(xtermRef, fitRef);
 
   // Container resize → fit
   React.useEffect(() => {

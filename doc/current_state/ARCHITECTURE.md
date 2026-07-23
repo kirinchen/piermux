@@ -26,17 +26,21 @@ owner: kirin
 - `desktop/LineBufferInput.tsx` — line mode 的 textarea,IME-aware Enter
 - `desktop/SendBar.tsx` — capture mode 下方一次性 send_message + quick presets
 - `desktop/HostFormDialog.tsx` — 新增 / 編輯 host
+- `desktop/SettingsDialog.tsx` — 終端外觀設定(**D-35,2026-07-23**)。header ⚙ 開啟。字型下拉(10 個 preset + 「自訂…」→ 自由填 CSS font-family)+ 字級 A−/滑桿/A+(8..28)+ 即時預覽 + 還原預設。改動**即時生效不用按確定**(`saveTermPrefs` 廣播),attach 中的 session 不會被踢掉。SPEC §11 backlog「設定面板(theme / font size / 預設 input mode)」的第一刀,theme / input mode 未做
 - `components/ui/*` — 手寫 shadcn-style:Button / Dialog / Input / Label / Select
 - `hooks/useHosts.ts` / `useSessions.ts` / `useCapture.ts` — TanStack Query mutations + queries
 - `lib/tauri.ts` — Tauri invoke wrapper(所有 backend command 集中在這個 `api` object)
 - `lib/types.ts` — TS mirror 的 backend types(Host / Session / CaptureResult / HostConnectionStatus / HostForm)
 - `lib/osc52.ts` — `installOsc52Handler(term)` 給每個 xterm 掛 OSC 52 OSC handler(PR #2,2026-06-01)。收到 remote 的 `ESC]52;c;<base64>BEL`(tmux `set -g set-clipboard on` 觸發)→ `atob` → `tauri-plugin-clipboard-manager.writeText` → host OS clipboard。**Read 請求(`?` payload)直接拒絕**,capability 也只給 `clipboard-manager:allow-write-text`(雙保險)。掛點:`SessionPanel` / `CaptureCell` / `SessionScreen`(CaptureView + AttachView)四處
 - `lib/xterm-unicode.ts` — `installUnicodeWidths(term)` 把 xterm 字元寬度對齊新版 tmux(**D-28,2026-07-02**)。載入官方 `@xterm/addon-unicode-graphemes`(Unicode 15 + grapheme cluster)並設 `unicode.activeVersion` 為最新。**根因**:tmux 3.4 把 emoji(`✅ ❌ ⚠️`)當寬度 2,xterm 預設 Unicode 6 provider 當寬度 1 → tmux 重繪時每 emoji 差 1 欄累積 → 行尾字 wrap 到下一行行頭(owner 誤判為 OSC 52,實為寬度 desync;OSC 52 解析已用真實 tmux 3.4 bytes 證明乾淨)。掛在同上四處 xterm 初始化(建構需 `allowProposedApi:true`,unicode API 是 proposed),要在 `open()`/`write()` 前呼叫
+- `lib/xterm-links.ts` — `installWebLinks(term)`:`WebLinksAddon` 配自訂 handler,終端裡的網址點一下走 `tauri-plugin-opener` 的 `openUrl` 用 **OS 預設瀏覽器**開(Android 是 Intent → 系統瀏覽器)(**D-36,2026-07-23**)。取代 addon 預設的 `window.open`(在 Tauri WebView 不是被擋就是開一個沒 chrome 的內嵌視窗)。**只放行 `^https?://`**,capability 也只給 `opener:allow-open-url` + scope `http://*` / `https://*`(不用 `opener:default`,那組還含 reveal-item-in-dir 跟 mailto/tel)。掛在同上四處
+- `lib/term-prefs.ts` + `lib/useTermPrefs.ts` — 終端外觀偏好(字型 + 字級)(**D-35,2026-07-23**)。存 **localStorage** key `piermux:termPrefs`(**不是** SPEC §5 的 `ui_preferences` 表 —— xterm 建構當下就要同步拿到值,走 DB 得先 await 會先用預設畫一次再重畫)。單一 `fontSize` 主字級,各站用固定 delta 保住原本相對關係:desktop attach/capture `+0`(原 13)、grid mini cell `-2`(原 11)、Android attach `-1`(原 12)。`term-prefs.ts` = 純資料 + 極簡 store(`getTermPrefs` / `saveTermPrefs` / `subscribeTermPrefs` / `fontSizeFor`);`useTermPrefs.ts` = React 綁定(`useTermPrefs` 走 `useSyncExternalStore`、`useTermFontSync(xtermRef, fitRef, delta)` 把變動套到活著的 xterm 並 refit,**不 remount**)。各 xterm 在 `new XTerm({...})` 直接讀 `getTermPrefs()` 取初值
 
 ### Frontend — Android (`src/android/`)
 
 M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_message + attach 雙向 + line buffer + modifier bar。共用 hooks(useHostsList / useSessions / useCapture)+ lib。
-- `AndroidApp.tsx` — `stack: Screen[]` 配 push/pop 做 navigation;`Screen` discriminated union(`host-list` | `host-form` | `session-list` | `session`)。沒裝 React Router
+- `AndroidApp.tsx` — `stack: Screen[]` 配 push/pop 做 navigation;`Screen` discriminated union(`host-list` | `host-form` | `session-list` | `session` | `settings`)。沒裝 React Router
+- `SettingsScreen.tsx` — 終端外觀設定全屏(**D-35,2026-07-23**),host list header ⚙ push 進來。內容同 desktop `SettingsDialog`(字型 preset / 自訂、字級 A−滑桿A+、預覽、還原預設),但走原生 `<select>` / `<input type=range>` + 大點擊區,對齊 `AndroidHostFormScreen` 的 pattern
 - `useAndroidBack.ts` — hook 接 `getCurrentWindow().onCloseRequested`,Android-only,canGoBack=true 時 preventDefault + pop,否則放系統關 app。Tauri 2 Android hardware back 對映行為待實機驗
 - `HostListScreen.tsx` — 卡片式 host list,header 有 `⟳ All`(`useRefreshAll` = captureAll)+ `+ Host`;每 row 含 [✏] 進 edit form。tap row 進 SessionList
 - `AndroidHostFormScreen.tsx` — 全屏 host form,取代 desktop dialog 的 modal pattern,用原生 `<input>`/`<select>` 配 inputMode/autoCapitalize/autoCorrect=off。共用 useCreate/Update/Delete/TestConnection。Edit mode 下方紅色「刪除這台 host」按鈕走 `window.confirm` + `useDeleteHost`
@@ -55,7 +59,7 @@ M2b/M2c/M2d(2026-05-14,EPIC-002 / ISSUE-010)。Stack navigation + capture/send_m
 
 ### Backend (`src-tauri/src/`)
 
-- `lib.rs` — Tauri builder 註冊,setup hook 開 sqlx pool + AttachRegistry,invoke_handler 列所有 commands
+- `lib.rs` — Tauri builder 註冊(plugin:sql / clipboard-manager / **opener**),setup hook 開 sqlx pool + AttachRegistry,invoke_handler 列所有 commands
 - `commands.rs` — host CRUD + test_connection + import_private_key(M1b)
 - `hosts.rs` — `Host` / `HostForm` struct + `Session` + `HostConnectionStatus` + sqlx pool 開啟 + apply_schema + CRUD
 - `sessions.rs` — `list_sessions` / `host_status` / `kill_session` / `rename_session`(SPEC §6.6 + session-level rename UX)Tauri commands + 共用 helpers `read_password_for` / `build_auth` / `port_u16` / `parse_sessions` / `list_sessions_for` (pub(crate),capture/attach/messaging 共用)+ 內部 `run_tmux_control` / `shell_quote`
@@ -161,4 +165,4 @@ D-15(2026-05-13)加。為 4 個 Android target(`aarch64-linux-android` / `armv7-
 
 *Anything in this file should be **verifiable from the running code right now**. If a claim here contradicts the code, the claim is wrong — fix it.*
 
-*Last updated: 2026-07-06(D-30:attach 後主動 nudge 尺寸(rows-1→rows)逼 tmux 乾淨全重畫 — 修「非全寬/直式 attach 花屏殘留」,實測尺寸其實一致(window-size=latest 單 client),根因是首次繪製撞上 xterm reflow、送同尺寸 resize 不會重畫,故 nudge 一次真正尺寸變化;header 加 `cols×rows` 診斷顯示。D-29(前一版方向對機制錯、無效,已被 D-30 取代)。D-28:`lib/xterm-unicode.ts` — 加 `@xterm/addon-unicode-graphemes` 對齊 emoji/CJK 寬度(真字寬 bug,但非 D-29 那個行頭殘留主因);OSC 52 解析經真實 tmux bytes 證明乾淨。D-27:CTRL/ALT 改 toggle(hold);attach 逐鍵輸入改 `inputmode="url"`。D-26:`useTouchScroll` 手指拖曳捲動。D-25:bar 容器層 `onMouseDown.preventDefault` 保軟鍵盤焦點)*
+*Last updated: 2026-07-23(D-35:終端字型 / 字級可設定 —— `lib/term-prefs.ts` + `lib/useTermPrefs.ts`(localStorage,非 `ui_preferences` 表)、desktop `SettingsDialog` + Android `SettingsScreen`,四個 xterm 都讀,改動即時生效不 remount。D-36:終端網址點一下開 OS 預設瀏覽器 —— `lib/xterm-links.ts` 走 `tauri-plugin-opener`,四個 xterm 都掛,只放行 http/https(capability scope 再擋一層)。以下為先前紀錄:D-30:attach 後主動 nudge 尺寸(rows-1→rows)逼 tmux 乾淨全重畫 — 修「非全寬/直式 attach 花屏殘留」,實測尺寸其實一致(window-size=latest 單 client),根因是首次繪製撞上 xterm reflow、送同尺寸 resize 不會重畫,故 nudge 一次真正尺寸變化;header 加 `cols×rows` 診斷顯示。D-29(前一版方向對機制錯、無效,已被 D-30 取代)。D-28:`lib/xterm-unicode.ts` — 加 `@xterm/addon-unicode-graphemes` 對齊 emoji/CJK 寬度(真字寬 bug,但非 D-29 那個行頭殘留主因);OSC 52 解析經真實 tmux bytes 證明乾淨。D-27:CTRL/ALT 改 toggle(hold);attach 逐鍵輸入改 `inputmode="url"`。D-26:`useTouchScroll` 手指拖曳捲動。D-25:bar 容器層 `onMouseDown.preventDefault` 保軟鍵盤焦點)*
