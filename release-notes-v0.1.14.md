@@ -27,7 +27,9 @@ https://github.com/kirinchen/piermux/compare/v0.1.13...v0.1.14
   - `piermux_0.1.14_x64_en-US.msi` — MSI(批次部署用)
   - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
 - **Android** — `piermux-android-v0.1.14.apk`(universal,離線可跑)
-- **Linux** — 待 owner 在 Linux 補上(`.deb` / `.AppImage`)。
+- **Linux 桌面(Ubuntu / Linux Mint,x86_64)**
+  - `piermux_0.1.14_amd64.deb` — `sudo apt install ./piermux_0.1.14_amd64.deb`(相依 `libwebkit2gtk-4.1-0`、`libgtk-3-0`,Ubuntu 22.04+ / Mint 21+ 內建)
+  - `piermux_0.1.14_amd64.AppImage` — `chmod +x` 後直接執行,免安裝
 
 ## Known limitations
 
