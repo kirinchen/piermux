@@ -17,6 +17,29 @@ type Opts = {
 const TAP_SLOP = 6;
 // 一次 scroll_session 最多捲幾行(對齊 desktop)
 const MAX_LINES_PER_FLUSH = 500;
+// 一次 touchmove 最多合成幾顆 wheel 事件(快甩防爆量)
+const MAX_WHEEL_PER_MOVE = 60;
+
+// D-38:inner app 自己開 mouse tracking(claude code / vim / less、tmux `mouse on`)
+// 時,拖曳改合成 wheel 事件丟回 xterm —— xterm 會用「app 協商好的編碼」(SGR 等)
+// 轉成 mouse report 走 onData → PTY → app 自己捲,等同 desktop D-33 放行滾輪。
+// 一行一顆 event(對齊實體滾輪一格),方向:手指往下 = 看歷史 = wheel up = deltaY 負。
+function dispatchSyntheticWheel(el: HTMLElement, lines: number): void {
+  const target = el.querySelector<HTMLElement>(".xterm-screen") ?? el;
+  const rect = target.getBoundingClientRect();
+  const opts: WheelEventInit = {
+    bubbles: true,
+    cancelable: true,
+    deltaMode: 0, // pixel
+    deltaY: lines > 0 ? -40 : 40,
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+  };
+  const n = Math.min(Math.abs(lines), MAX_WHEEL_PER_MOVE);
+  for (let i = 0; i < n; i++) {
+    target.dispatchEvent(new WheelEvent("wheel", opts));
+  }
+}
 
 /**
  * 手指拖曳捲動終端(D-26)。
@@ -25,7 +48,8 @@ const MAX_LINES_PER_FLUSH = 500;
  * 觸控落在 screen 不會觸發 viewport 的原生捲動,而 xterm 本身只把「滾輪」轉成
  * 捲動、不處理 touch-drag → 行動端拖不動畫面。這個 hook 把垂直拖曳換算成行數:
  *   - normal buffer:`term.scrollLines()` 捲自己的 scrollback(1:1 跟手)
- *   - alt-screen(tmux 全螢幕):走 `onAltScreenScroll` → tmux copy-mode(對齊 desktop)
+ *   - alt-screen + app 開 mouse tracking(claude/vim):合成 wheel → app 自己捲(D-38)
+ *   - alt-screen 其餘(純 shell):走 `onAltScreenScroll` → tmux copy-mode(對齊 desktop)
  *
  * 方向:手指往下拖 = 內容跟著往下 = 看更早的歷史
  *   - normal:往 scrollback 頂端捲(`scrollLines` 負向)
@@ -105,9 +129,12 @@ export function useTouchScroll({
       lastY = y;
       if (!engaged && Math.abs(y - startY) < TAP_SLOP) return;
       const alt = term.buffer.active.type === "alternate";
+      // D-38:app 有開 mouse tracking → 拖曳交給 app 自己捲(copy-mode 進不去:
+      // app 內容在 tmux 層沒 scrollback,只會 [0/0] 卡死 —— owner 回報 phone.png)
+      const mouseApp = alt && term.modes.mouseTrackingMode !== "none";
       // alt-screen 但沒有捲動目標(尚未 attach)→ 不攔,讓給瀏覽器 / xterm,
       // 對齊 desktop SessionPanel 的 `return true`。alt buffer 本來也沒 scrollback。
-      if (alt && !altCbRef.current) return;
+      if (alt && !mouseApp && !altCbRef.current) return;
       engaged = true;
       // 吞掉預設(原生捲動 / 選字 / 後續 click)— 需 passive:false 才能 preventDefault
       e.preventDefault();
@@ -115,7 +142,9 @@ export function useTouchScroll({
       const lines = Math.trunc(accumPx / cellH);
       if (lines === 0) return;
       accumPx -= lines * cellH;
-      if (alt) {
+      if (mouseApp) {
+        dispatchSyntheticWheel(el, lines);
+      } else if (alt) {
         // 手指往下(lines>0)= 看歷史 = up
         pendingLines += lines;
         if (!inflight) flushAlt();

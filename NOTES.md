@@ -119,6 +119,22 @@
   - **驗證**:`tsc` + `cargo check` + `npx tauri build` 過(capability 在 bundle 期會被驗)。**點擊行為未實機驗**(無 display)。
   - **待觀察**:attach 到有開 mouse tracking 的 app(claude code / vim)時,滑鼠點擊會被轉成 mouse event 送給 app —— 那種情況下能不能點到連結還沒實測,必要時可能得改成 Ctrl/Shift+click(對齊 Tabby / Windows Terminal 的慣例)。
 
+- D-37(2026-08-15,owner 回報 wrong.png vs normal.png:「只要不是 F5 強制 refresh,行頭 prefix 就會殘留 + layout 微移」):**自動重繪 = 自動版 F5**。
+  - **判斷**:D-34 已確認根因(tmux×xterm 字寬在部分字元不合、寬度表綁 host tmux 版本,前端無法根治),而 owner 實測「F5 必治」→ 正解就是把 F5 自動化,難點只在**不能撞輸入**(D-31 教訓:自動 resize 撞上打字/貼上會壞輸入賣點,曾被整組拔掉)。
+  - **修法**(desktop `SessionPanel` attach effect 內):attach 輸出停 400ms → 自動跑一次 D-34 的 resize 重繪。四道保護:
+    1. 距最後一次**鍵盤**輸入 < 2s 不發動(400ms 後再試,直到 idle);
+    2. D-33 滾輪轉發產生的 mouse report(`\x1b[<`、`\x1b[M`)與 focus report 不算輸入 —— 不然捲個滾輪就把重繪擋 2 秒;
+    3. 重繪自己引發的整屏 echo 1.5s 內不再排程(防自迴圈;真有新內容會再觸發);
+    4. 兩次自動重繪至少隔 3s(限流,claude 串流中不會狂發 SIGWINCH)。
+  - **紅線筆記**:這是刻意重新引入「自動 resize」—— 跟被 D-31 拔掉的 nudge 同類動作,差別在守門條件(輸入 idle 才動)。owner dev 實測「attach 完馬上打字」「打字中畫面更新」必須沒感覺才算過。
+  - **未實機驗** — 待 owner:殘字是否 ~0.5s 內自動消失、打字/貼上是否完全不受影響。
+
+- D-38(2026-08-15,owner 回報 Android 拖曳畫面卡住、右上黃色 `[0/0]`;Windows 滾輪正常且不用進 copy-mode):**Android 觸控拖曳補上 D-33 的 mouse tracking 判斷**。
+  - **根因**:D-26 的 `useTouchScroll` 在 alt-screen 一律走 `onAltScreenScroll` → `scroll_session`(tmux copy-mode)—— 跟 desktop D-33 修掉的 bug 一模一樣,只是入口是觸控不是滾輪。claude code 這種自己開 mouse tracking 的 app 在 tmux 層沒有 scrollback → copy-mode 進去 `[0/0]` 卡死。Windows 正常是因為 D-33 只修了 desktop 滾輪。
+  - **修法**:`useTouchScroll` 在 alt-screen 多判斷 `term.modes.mouseTrackingMode !== 'none'` → 改把拖曳距離換算成行數,**合成 WheelEvent dispatch 回 xterm 的 `.xterm-screen`**,讓 xterm 用 app 協商好的編碼(SGR 等)轉 mouse report 走 onData → PTY → app 自己捲。不自己拼 escape sequence(編碼協商 xterm 內部才知道)。一行一顆 event(對齊實體滾輪一格),一次 touchmove 上限 60 顆。純 shell(沒開 mouse)維持 copy-mode 路不變。
+  - **卡在 `[0/0]` 的舊 session 自癒**:copy-mode 位置在底部時收到 scroll-down 會自動退出 copy-mode,所以修好後手指往上滑一下就出來了。
+  - **未實機驗** — 待 owner Android 真機:拖曳 claude session 能捲、不再出現 `[0/0]`;純 shell 拖曳仍能看 tmux 歷史。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
