@@ -127,13 +127,13 @@
     3. 重繪自己引發的整屏 echo 1.5s 內不再排程(防自迴圈;真有新內容會再觸發);
     4. 兩次自動重繪至少隔 3s(限流,claude 串流中不會狂發 SIGWINCH)。
   - **紅線筆記**:這是刻意重新引入「自動 resize」—— 跟被 D-31 拔掉的 nudge 同類動作,差別在守門條件(輸入 idle 才動)。owner dev 實測「attach 完馬上打字」「打字中畫面更新」必須沒感覺才算過。
-  - **未實機驗** — 待 owner:殘字是否 ~0.5s 內自動消失、打字/貼上是否完全不受影響。
+  - **實機驗 ✓**(2026-08-15,owner dev 實測後指示發版)→ 隨 v0.1.15 發版。
 
 - D-38(2026-08-15,owner 回報 Android 拖曳畫面卡住、右上黃色 `[0/0]`;Windows 滾輪正常且不用進 copy-mode):**Android 觸控拖曳補上 D-33 的 mouse tracking 判斷**。
   - **根因**:D-26 的 `useTouchScroll` 在 alt-screen 一律走 `onAltScreenScroll` → `scroll_session`(tmux copy-mode)—— 跟 desktop D-33 修掉的 bug 一模一樣,只是入口是觸控不是滾輪。claude code 這種自己開 mouse tracking 的 app 在 tmux 層沒有 scrollback → copy-mode 進去 `[0/0]` 卡死。Windows 正常是因為 D-33 只修了 desktop 滾輪。
   - **修法**:`useTouchScroll` 在 alt-screen 多判斷 `term.modes.mouseTrackingMode !== 'none'` → 改把拖曳距離換算成行數,**合成 WheelEvent dispatch 回 xterm 的 `.xterm-screen`**,讓 xterm 用 app 協商好的編碼(SGR 等)轉 mouse report 走 onData → PTY → app 自己捲。不自己拼 escape sequence(編碼協商 xterm 內部才知道)。一行一顆 event(對齊實體滾輪一格),一次 touchmove 上限 60 顆。純 shell(沒開 mouse)維持 copy-mode 路不變。
   - **卡在 `[0/0]` 的舊 session 自癒**:copy-mode 位置在底部時收到 scroll-down 會自動退出 copy-mode,所以修好後手指往上滑一下就出來了。
-  - **未實機驗** — 待 owner Android 真機:拖曳 claude session 能捲、不再出現 `[0/0]`;純 shell 拖曳仍能看 tmux 歷史。
+  - **隨 v0.1.15 發版**(2026-08-15)。Android 真機驗證待 owner 裝新 APK 後確認:拖曳 claude session 能捲、不再出現 `[0/0]`;純 shell 拖曳仍能看 tmux 歷史。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
