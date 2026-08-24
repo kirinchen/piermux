@@ -70,6 +70,7 @@ export function SendBar({ host, session }: Props) {
     try {
       await api.sendMessage(
         host.id,
+        session.socket,
         session.name,
         payload,
         sendEnter,

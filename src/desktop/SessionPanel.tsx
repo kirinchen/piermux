@@ -79,7 +79,9 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)
   // targetId 給 effects 用 dep,穩定字串而非 union object
   const targetId =
-    target.kind === "tmux" ? `tmux:${target.session.name}` : "shell";
+    target.kind === "tmux"
+      ? `tmux:${target.session.socket}:${target.session.name}`
+      : "shell";
   React.useEffect(() => {
     return () => {
       setMode("attach");
@@ -222,6 +224,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
     if (mode !== "capture") return;
     if (target.kind !== "tmux") return;
     const sessionName = target.session.name;
+    const socket = target.session.socket;
 
     const writeResult = (r: CaptureResult) => {
       const t = xtermRef.current;
@@ -233,7 +236,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
 
     setRefreshing(true);
     api
-      .captureSession(host.id, sessionName)
+      .captureSession(host.id, socket, sessionName)
       .then(writeResult)
       .catch((err) => {
         toast.error(`抓 capture 失敗:${String(err)}`);
@@ -248,7 +251,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
       .finally(() => setRefreshing(false));
 
     let unlisten: UnlistenFn | undefined;
-    const eventName = `capture-updated:${host.id}:${sessionName}`;
+    const eventName = `capture-updated:${host.id}:${socket}:${sessionName}`;
     listen<CaptureResult>(eventName, (e) => writeResult(e.payload))
       .then((un) => {
         unlisten = un;
@@ -363,6 +366,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
         if (target.kind === "tmux") {
           aid = await api.attachSession(
             host.id,
+            target.session.socket,
             target.session.name,
             cols,
             rows,
@@ -465,7 +469,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
     const sessionName = target.session.name;
     setRefreshing(true);
     try {
-      const r = await api.captureSession(host.id, sessionName);
+      const r = await api.captureSession(
+        host.id,
+        target.session.socket,
+        sessionName,
+      );
       const term = xtermRef.current;
       if (term) {
         term.clear();

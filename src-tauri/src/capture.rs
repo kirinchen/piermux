@@ -43,6 +43,7 @@ const TMUX_CAPTURE_LINES: usize = 2000;
 #[derive(Debug, Serialize, Clone)]
 pub struct CaptureResult {
     pub host_id: String,
+    pub socket: String,
     pub session_name: String,
     pub content: String,
     pub captured_at: String, // RFC3339
@@ -53,12 +54,13 @@ pub async fn capture_session(
     app: AppHandle,
     pool: State<'_, SqlitePool>,
     host_id: String,
+    socket: String,
     session_name: String,
 ) -> Result<CaptureResult, String> {
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    let result = capture_one(pool.inner(), &host, &session_name)
+    let result = capture_one(pool.inner(), &host, &socket, &session_name)
         .await
         .map_err(|e| e.to_string())?;
     write_cache(pool.inner(), &result)
@@ -153,6 +155,7 @@ async fn capture_host_inner(
     for s in session_list {
         let ssh_clone = ssh_session.clone();
         let host_clone = host.clone();
+        let socket = s.socket;
         let session_name = s.name;
         let semaphore_clone = semaphore.clone();
         let app_clone = app.clone();
@@ -162,26 +165,26 @@ async fn capture_host_inner(
                 Ok(p) => p,
                 Err(_) => return None, // semaphore 不會被 close,實務上不會走這
             };
-            match capture_via_session(&ssh_clone, &host_clone, &session_name).await {
+            match capture_via_session(&ssh_clone, &host_clone, &socket, &session_name).await {
                 Ok(result) => {
                     if let Err(e) = write_cache(&pool_clone, &result).await {
                         eprintln!(
-                            "[capture_host] write_cache {}/{} failed: {e}",
-                            host_clone.display_name, session_name
+                            "[capture_host] write_cache {}/{}/{} failed: {e}",
+                            host_clone.display_name, socket, session_name
                         );
                     }
                     if let Err(e) = emit_capture(&app_clone, &result) {
                         eprintln!(
-                            "[capture_host] emit {}/{} failed: {e}",
-                            host_clone.display_name, session_name
+                            "[capture_host] emit {}/{}/{} failed: {e}",
+                            host_clone.display_name, socket, session_name
                         );
                     }
                     Some(result)
                 }
                 Err(e) => {
                     eprintln!(
-                        "[capture_host] capture {}/{} failed: {e}",
-                        host_clone.display_name, session_name
+                        "[capture_host] capture {}/{}/{} failed: {e}",
+                        host_clone.display_name, socket, session_name
                     );
                     None
                 }
@@ -205,10 +208,12 @@ async fn capture_host_inner(
 async fn capture_via_session(
     ssh_session: &SshSession,
     host: &Host,
+    socket: &str,
     session_name: &str,
 ) -> Result<CaptureResult> {
     let cmd = format!(
-        "tmux capture-pane -t {}:0 -p -e -S -{}",
+        "{} capture-pane -t {}:0 -p -e -S -{}",
+        sessions::tmux_with_socket(socket),
         shell_quote(session_name),
         TMUX_CAPTURE_LINES,
     );
@@ -220,13 +225,19 @@ async fn capture_via_session(
     })?;
     Ok(CaptureResult {
         host_id: host.id.clone(),
+        socket: socket.to_string(),
         session_name: session_name.to_string(),
         content: stdout,
         captured_at: Utc::now().to_rfc3339(),
     })
 }
 
-async fn capture_one(pool: &SqlitePool, host: &Host, session_name: &str) -> Result<CaptureResult> {
+async fn capture_one(
+    pool: &SqlitePool,
+    host: &Host,
+    socket: &str,
+    session_name: &str,
+) -> Result<CaptureResult> {
     let password = sessions::read_password_for(host)?;
     let auth = sessions::build_auth(host, password.as_deref())?;
     let port = sessions::port_u16(host)?;
@@ -237,7 +248,8 @@ async fn capture_one(pool: &SqlitePool, host: &Host, session_name: &str) -> Resu
 
     // -p 印到 stdout / -e 含 ANSI escape codes / -S -<N> 從往回 N 行起
     let cmd = format!(
-        "tmux capture-pane -t {}:0 -p -e -S -{}",
+        "{} capture-pane -t {}:0 -p -e -S -{}",
+        sessions::tmux_with_socket(socket),
         shell_quote(session_name),
         TMUX_CAPTURE_LINES,
     );
@@ -253,6 +265,7 @@ async fn capture_one(pool: &SqlitePool, host: &Host, session_name: &str) -> Resu
 
     Ok(CaptureResult {
         host_id: host.id.clone(),
+        socket: socket.to_string(),
         session_name: session_name.to_string(),
         content: stdout,
         captured_at: Utc::now().to_rfc3339(),
@@ -261,13 +274,14 @@ async fn capture_one(pool: &SqlitePool, host: &Host, session_name: &str) -> Resu
 
 async fn write_cache(pool: &SqlitePool, r: &CaptureResult) -> Result<()> {
     sqlx::query(
-        "INSERT INTO capture_cache (host_id, session_name, content, captured_at) \
-         VALUES (?, ?, ?, ?) \
-         ON CONFLICT(host_id, session_name) DO UPDATE SET \
+        "INSERT INTO capture_cache (host_id, socket, session_name, content, captured_at) \
+         VALUES (?, ?, ?, ?, ?) \
+         ON CONFLICT(host_id, socket, session_name) DO UPDATE SET \
              content = excluded.content, \
              captured_at = excluded.captured_at",
     )
     .bind(&r.host_id)
+    .bind(&r.socket)
     .bind(&r.session_name)
     .bind(&r.content)
     .bind(&r.captured_at)
@@ -277,10 +291,13 @@ async fn write_cache(pool: &SqlitePool, r: &CaptureResult) -> Result<()> {
 }
 
 fn emit_capture(app: &AppHandle, r: &CaptureResult) -> Result<()> {
-    // SPEC §6.3:event name `capture-updated:<host_id>:<session_name>`。
-    // host_id 是 UUID v4(不含 ':');tmux session name 也禁止含 ':' ($man tmux 對 target spec 的限制)
-    // 所以 frontend listener 用 exact name match 安全。
-    let evt = format!("capture-updated:{}:{}", r.host_id, r.session_name);
+    // event name `capture-updated:<host_id>:<socket>:<session_name>`(D-39 加 socket)。
+    // host_id 是 UUID v4(不含 ':');tmux session name 禁止含 ':';socket 名理論上可含
+    // ':'(檔名)但實務極罕見 — 若真撞到只是 listener miss,capture 內容仍寫進 cache。
+    let evt = format!(
+        "capture-updated:{}:{}:{}",
+        r.host_id, r.socket, r.session_name
+    );
     app.emit(&evt, r).map_err(|e| anyhow!("emit {evt}: {e}"))?;
     Ok(())
 }

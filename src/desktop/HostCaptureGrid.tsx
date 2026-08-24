@@ -108,7 +108,7 @@ export function HostCaptureGrid({ host, onSelectSession }: Props) {
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
             {sessions.data.map((s) => (
               <CaptureCell
-                key={s.name}
+                key={`${s.socket}:${s.name}`}
                 host={host}
                 session={s}
                 onExpand={() => onSelectSession(s)}

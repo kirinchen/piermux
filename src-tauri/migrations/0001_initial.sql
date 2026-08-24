@@ -28,12 +28,16 @@ CREATE TABLE IF NOT EXISTS quick_presets (
     sort_order INTEGER NOT NULL DEFAULT 0
 );
 
+-- socket:tmux server socket 名(`tmux -L <name>`),預設 server 是 'default'。
+-- 同一 host 不同 socket 可有同名 session,所以 socket 進 PK(D-39)。
+-- 既有 DB(無 socket 欄)由 hosts.rs migrate_capture_cache_socket 重建升級。
 CREATE TABLE IF NOT EXISTS capture_cache (
     host_id      TEXT NOT NULL,
+    socket       TEXT NOT NULL DEFAULT 'default',
     session_name TEXT NOT NULL,
     content      TEXT NOT NULL,
     captured_at  TEXT NOT NULL,
-    PRIMARY KEY (host_id, session_name)
+    PRIMARY KEY (host_id, socket, session_name)
 );
 
 -- TOFU server pubkey 信任記錄(每個 host 第一次連上記下 fingerprint,

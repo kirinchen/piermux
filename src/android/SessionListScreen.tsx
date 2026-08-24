@@ -8,6 +8,7 @@ import {
 } from "@/hooks/useSessions";
 import { useHostsList } from "@/hooks/useHosts";
 import { useRefreshHost } from "@/hooks/useCapture";
+import { groupBySocket } from "@/lib/session-group";
 import type { Session } from "@/lib/types";
 import type { AndroidTarget } from "./AndroidApp";
 
@@ -39,7 +40,8 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
     const name = input.trim();
     if (name === "") return;
     try {
-      await newSession.mutateAsync({ hostId, sessionName: name });
+      // host 層 [+] 一律建在預設 server(socket "default",D-39)
+      await newSession.mutateAsync({ hostId, socket: "default", sessionName: name });
       toast.success(`已建立 session:${name}`);
     } catch (err) {
       toast.error(`新增 session 失敗:${String(err)}`);
@@ -101,18 +103,36 @@ export function SessionListScreen({ hostId, onBack, onSelectTarget }: Props) {
             這台 host 還沒有 tmux session
           </p>
         )}
-        <ul className="space-y-2">
-          {sessions?.map((s) => (
-            <SessionRow
-              key={s.name}
-              hostId={hostId}
-              session={s}
-              onSelect={() =>
-                onSelectTarget({ kind: "tmux", session: s.name })
-              }
-            />
-          ))}
-        </ul>
+        {sessions &&
+          sessions.length > 0 &&
+          (() => {
+            const groups = groupBySocket(sessions);
+            // 只有一個 socket → 扁平不顯示分組標題(D-39,B 方案)
+            const multiSocket = groups.length > 1;
+            return groups.map((g) => (
+              <ul key={g.socket} className="space-y-2">
+                {multiSocket && (
+                  <li className="px-1 pb-0.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    ⌗ -L {g.socket}
+                  </li>
+                )}
+                {g.sessions.map((s) => (
+                  <SessionRow
+                    key={`${s.socket}:${s.name}`}
+                    hostId={hostId}
+                    session={s}
+                    onSelect={() =>
+                      onSelectTarget({
+                        kind: "tmux",
+                        socket: s.socket,
+                        session: s.name,
+                      })
+                    }
+                  />
+                ))}
+              </ul>
+            ));
+          })()}
       </main>
     </div>
   );
@@ -156,7 +176,12 @@ function SessionRow({
     const next = input.trim();
     if (next === "" || next === session.name) return;
     try {
-      await rename.mutateAsync({ hostId, sessionName: session.name, newName: next });
+      await rename.mutateAsync({
+        hostId,
+        socket: session.socket,
+        sessionName: session.name,
+        newName: next,
+      });
       toast.success(`已重新命名:${session.name} → ${next}`);
     } catch (err) {
       toast.error(`rename 失敗:${String(err)}`);
@@ -167,7 +192,11 @@ function SessionRow({
     e.stopPropagation();
     if (!window.confirm(`確定要 kill session '${session.name}'?`)) return;
     try {
-      await kill.mutateAsync({ hostId, sessionName: session.name });
+      await kill.mutateAsync({
+        hostId,
+        socket: session.socket,
+        sessionName: session.name,
+      });
       toast.success(`已 kill:${session.name}`);
     } catch (err) {
       toast.error(`kill 失敗:${String(err)}`);

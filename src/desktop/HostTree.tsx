@@ -13,6 +13,7 @@ import {
   Square,
   CheckSquare,
   Zap,
+  Server,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import {
   useNewSession,
 } from "@/hooks/useSessions";
 import { useRefreshHost } from "@/hooks/useCapture";
+import { groupBySocket } from "@/lib/session-group";
 import { api } from "@/lib/tauri";
 import { relativeTime } from "@/lib/time";
 import type { Host, HostConnectionStatus, Session } from "@/lib/types";
@@ -190,7 +192,13 @@ function HostRow({
     const name = input.trim();
     if (name === "") return;
     try {
-      await newSession.mutateAsync({ hostId: host.id, sessionName: name });
+      // host 層 [+] 一律建在預設 server(socket "default");要在別的 socket
+      // 開新 session 目前得從那台機器 CLI(第一刀,D-39)。
+      await newSession.mutateAsync({
+        hostId: host.id,
+        socket: "default",
+        sessionName: name,
+      });
       toast.success(`已建立 session:${name} @ ${host.display_name}`);
       if (!expanded) onToggle();
     } catch (err) {
@@ -328,26 +336,39 @@ function HostRow({
               沒 session
             </div>
           )}
-          {sessions.data?.map((s) => {
-            const selected =
-              selection?.kind === "session" &&
-              selection.host.id === host.id &&
-              selection.session.name === s.name;
-            return (
-              <SessionRow
-                key={s.name}
-                host={host}
-                session={s}
-                selected={selected}
-                onSelect={() =>
-                  onSelect({ kind: "session", host, session: s })
-                }
-                onAfterKill={() => {
-                  if (selected) onSelect(null);
-                }}
-              />
-            );
-          })}
+          {sessions.data &&
+            sessions.data.length > 0 &&
+            (() => {
+              const groups = groupBySocket(sessions.data);
+              // 只有一個 socket(通常是 default)→ 扁平不顯示分組標題(D-39,B 方案)
+              const multiSocket = groups.length > 1;
+              return groups.map((g) => (
+                <React.Fragment key={g.socket}>
+                  {multiSocket && <SocketHeader socket={g.socket} />}
+                  {g.sessions.map((s) => {
+                    const selected =
+                      selection?.kind === "session" &&
+                      selection.host.id === host.id &&
+                      selection.session.socket === s.socket &&
+                      selection.session.name === s.name;
+                    return (
+                      <SessionRow
+                        key={`${s.socket}:${s.name}`}
+                        host={host}
+                        session={s}
+                        selected={selected}
+                        onSelect={() =>
+                          onSelect({ kind: "session", host, session: s })
+                        }
+                        onAfterKill={() => {
+                          if (selected) onSelect(null);
+                        }}
+                      />
+                    );
+                  })}
+                </React.Fragment>
+              ));
+            })()}
         </div>
       )}
     </div>
@@ -375,7 +396,7 @@ function SessionRow({
     e.stopPropagation();
     setRefreshing(true);
     try {
-      await api.captureSession(host.id, session.name);
+      await api.captureSession(host.id, session.socket, session.name);
     } catch (err) {
       toast.error(`${session.name} refresh 失敗:${String(err)}`);
     } finally {
@@ -392,6 +413,7 @@ function SessionRow({
     try {
       await rename.mutateAsync({
         hostId: host.id,
+        socket: session.socket,
         sessionName: session.name,
         newName: next,
       });
@@ -405,7 +427,11 @@ function SessionRow({
     e.stopPropagation();
     if (!window.confirm(`確定要 kill session '${session.name}'?(無法復原)`)) return;
     try {
-      await kill.mutateAsync({ hostId: host.id, sessionName: session.name });
+      await kill.mutateAsync({
+        hostId: host.id,
+        socket: session.socket,
+        sessionName: session.name,
+      });
       toast.success(`已 kill session:${session.name}`);
       onAfterKill();
     } catch (err) {
@@ -463,6 +489,19 @@ function SessionRow({
           <Trash2 className="h-3 w-3 text-destructive" />
         </button>
       </div>
+    </div>
+  );
+}
+
+// SocketHeader:多 socket 時每組上方的不可收合小標題(B 方案,D-39)
+function SocketHeader({ socket }: { socket: string }) {
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70"
+      title={`tmux server socket:${socket}(tmux -L ${socket})`}
+    >
+      <Server className="h-3 w-3 shrink-0" />
+      <span className="truncate">-L {socket}</span>
     </div>
   );
 }

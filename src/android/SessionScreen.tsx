@@ -83,7 +83,11 @@ export function SessionScreen({ hostId, target, onBack }: Props) {
       </header>
 
       {effectiveMode === "capture" && target.kind === "tmux" ? (
-        <CaptureView hostId={hostId} sessionName={target.session} />
+        <CaptureView
+          hostId={hostId}
+          socket={target.socket}
+          sessionName={target.session}
+        />
       ) : (
         <AttachView hostId={hostId} target={target} onBack={onBack} />
       )}
@@ -118,9 +122,11 @@ function ModeTab({
 
 function CaptureView({
   hostId,
+  socket,
   sessionName,
 }: {
   hostId: string;
+  socket: string;
   sessionName: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -200,7 +206,7 @@ function CaptureView({
     const triggerCapture = () => {
       setRefreshing(true);
       api
-        .captureSession(hostId, sessionName)
+        .captureSession(hostId, socket, sessionName)
         .then(writeResult)
         .catch((err) => {
           const term = xtermRef.current;
@@ -217,7 +223,7 @@ function CaptureView({
     triggerCapture();
 
     let unlisten: UnlistenFn | undefined;
-    const eventName = `capture-updated:${hostId}:${sessionName}`;
+    const eventName = `capture-updated:${hostId}:${socket}:${sessionName}`;
     listen<CaptureResult>(eventName, (e) => writeResult(e.payload))
       .then((un) => {
         unlisten = un;
@@ -234,12 +240,12 @@ function CaptureView({
       unlisten?.();
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [hostId, sessionName]);
+  }, [hostId, socket, sessionName]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await api.captureSession(hostId, sessionName);
+      await api.captureSession(hostId, socket, sessionName);
     } catch (err) {
       toast.error(`refresh 失敗:${String(err)}`);
     } finally {
@@ -250,7 +256,7 @@ function CaptureView({
   const sendKey = async (payload: string, literal: boolean) => {
     setSending(true);
     try {
-      await api.sendMessage(hostId, sessionName, payload, false, literal);
+      await api.sendMessage(hostId, socket, sessionName, payload, false, literal);
     } catch (err) {
       toast.error(`送失敗:${String(err)}`);
     } finally {
@@ -262,7 +268,7 @@ function CaptureView({
     if (!draft || sending) return;
     setSending(true);
     try {
-      await api.sendMessage(hostId, sessionName, draft, true, true);
+      await api.sendMessage(hostId, socket, sessionName, draft, true, true);
       setDraft("");
     } catch (err) {
       toast.error(`送失敗:${String(err)}`);
@@ -510,7 +516,13 @@ function AttachView({
         const rows = term.rows || 24;
         aid =
           target.kind === "tmux"
-            ? await api.attachSession(hostId, target.session, cols, rows)
+            ? await api.attachSession(
+                hostId,
+                target.socket,
+                target.session,
+                cols,
+                rows,
+              )
             : await api.attachShell(hostId, cols, rows);
         if (cancelled) {
           api.detachSession(aid).catch(() => {});

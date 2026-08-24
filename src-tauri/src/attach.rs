@@ -50,9 +50,9 @@ struct AttachHandle {
     ssh: Arc<SshSession>,
     session: makiko::Session,
     reader: Option<JoinHandle<()>>,
-    // tmux session name(scroll_session 組 copy-mode target 用)。
+    // (socket, tmux session name)(scroll_session 組 copy-mode target 用,D-39)。
     // shell target 沒 tmux → None,scroll 變 no-op。
-    target: Option<String>,
+    target: Option<(String, String)>,
 }
 
 impl Drop for AttachHandle {
@@ -105,7 +105,7 @@ async fn finalize_attach(
     ssh: Arc<SshSession>,
     session: makiko::Session,
     mut sess_rx: makiko::SessionReceiver,
-    target: Option<String>,
+    target: Option<(String, String)>,
 ) -> String {
     let attach_id = Uuid::new_v4().to_string();
     let app_clone = app.clone();
@@ -168,6 +168,7 @@ pub async fn attach_session(
     pool: State<'_, SqlitePool>,
     registry: State<'_, AttachRegistry>,
     host_id: String,
+    socket: String,
     session_name: String,
     cols: u32,
     rows: u32,
@@ -190,7 +191,11 @@ pub async fn attach_session(
 
     let (session, sess_rx) = open_pty_channel(&ssh, cols, rows).await?;
 
-    let cmd = format!("tmux attach -t {}", shell_quote(&session_name));
+    let cmd = format!(
+        "{} attach -t {}",
+        sessions::tmux_with_socket(&socket),
+        shell_quote(&session_name)
+    );
     session
         .exec(cmd.as_bytes())
         .map_err(|e| format!("exec request: {e}"))?
@@ -198,7 +203,15 @@ pub async fn attach_session(
         .await
         .map_err(|e| format!("exec wait: {e}"))?;
 
-    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx, Some(session_name)).await)
+    Ok(finalize_attach(
+        &app,
+        &registry,
+        ssh,
+        session,
+        sess_rx,
+        Some((socket, session_name)),
+    )
+    .await)
 }
 
 /// M1.5 直連 shell(NOTES D-14):跟 attach_session 同流程,差別在 exec("tmux attach")
@@ -258,24 +271,25 @@ pub async fn scroll_session(
     up: bool,
     lines: u32,
 ) -> Result<(), String> {
-    // clone Arc<SshSession> + target 後立刻釋放 lock,別 hold mutex 跨 await
-    let (ssh, target) = {
+    // clone Arc<SshSession> + (socket, session) 後立刻釋放 lock,別 hold mutex 跨 await
+    let (ssh, socket, session) = {
         let map = registry.inner.lock().await;
         let handle = map
             .get(&session_id)
             .ok_or_else(|| format!("attach session not found: {session_id}"))?;
         match &handle.target {
             None => return Ok(()), // shell:沒 tmux,不支援 copy-mode
-            Some(t) => (handle.ssh.clone(), t.clone()),
+            Some((sock, sess)) => (handle.ssh.clone(), sock.clone(), sess.clone()),
         }
     };
 
     let lines = lines.clamp(1, 500);
-    let pane = shell_quote(&format!("{target}:0"));
+    let pane = shell_quote(&format!("{session}:0"));
+    let tmux = sessions::tmux_with_socket(&socket);
     let dir = if up { "scroll-up" } else { "scroll-down" };
     // 先確保進 copy-mode(已在 copy-mode 時 tmux 視為 no-op,不重置卷動位置),
     // 再送 N 次 scroll。scroll-down 滾到底 tmux 會自動退出 copy-mode。
-    let cmd = format!("tmux copy-mode -t {pane} ; tmux send-keys -t {pane} -X -N {lines} {dir}");
+    let cmd = format!("{tmux} copy-mode -t {pane} ; {tmux} send-keys -t {pane} -X -N {lines} {dir}");
     ssh.exec(&cmd)
         .await
         .map(|_| ())

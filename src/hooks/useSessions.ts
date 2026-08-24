@@ -25,8 +25,15 @@ export function useHostStatus(hostId: string) {
 export function useKillSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ hostId, sessionName }: { hostId: string; sessionName: string }) =>
-      api.killSession(hostId, sessionName),
+    mutationFn: ({
+      hostId,
+      socket,
+      sessionName,
+    }: {
+      hostId: string;
+      socket: string;
+      sessionName: string;
+    }) => api.killSession(hostId, socket, sessionName),
     onSuccess: (_data, { hostId }) => {
       qc.invalidateQueries({ queryKey: sessionsKey(hostId) });
     },
@@ -36,8 +43,15 @@ export function useKillSession() {
 export function useNewSession() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ hostId, sessionName }: { hostId: string; sessionName: string }) =>
-      api.newSession(hostId, sessionName),
+    mutationFn: ({
+      hostId,
+      socket,
+      sessionName,
+    }: {
+      hostId: string;
+      socket: string;
+      sessionName: string;
+    }) => api.newSession(hostId, socket, sessionName),
     onSuccess: (_data, { hostId }) => {
       qc.invalidateQueries({ queryKey: sessionsKey(hostId) });
     },
@@ -49,13 +63,15 @@ export function useRenameSession() {
   return useMutation({
     mutationFn: ({
       hostId,
+      socket,
       sessionName,
       newName,
     }: {
       hostId: string;
+      socket: string;
       sessionName: string;
       newName: string;
-    }) => api.renameSession(hostId, sessionName, newName),
+    }) => api.renameSession(hostId, socket, sessionName, newName),
     onSuccess: (_data, { hostId }) => {
       qc.invalidateQueries({ queryKey: sessionsKey(hostId) });
     },

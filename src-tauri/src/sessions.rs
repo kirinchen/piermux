@@ -15,8 +15,17 @@ use crate::hosts::{self, Host, HostConnectionStatus, Session};
 use crate::secret;
 use crate::ssh::{self, AuthMaterial, HostKeyPolicy};
 
-pub(crate) const TMUX_LIST_FMT: &str =
-    "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{session_windows}'";
+/// 掃 host 上**所有** tmux socket(`tmux -L <name>`)再逐一 list-sessions。
+/// socket 名 = `${TMUX_TMPDIR:-/tmp/tmux-<uid>}/` 下的檔名(預設 server 叫 `default`)。
+/// 死掉 / 沒 server 的 socket → `list-sessions` 報錯被 `2>/dev/null` 吞,該 socket 無輸出行。
+/// 每行 5 欄:socket|name|attached|activity|windows(socket 放行首,parse 時 splitn(5))。
+/// 只多 parse,不多一趟 SSH round-trip(整段是一條 exec)。D-39。
+pub(crate) const TMUX_LIST_FMT: &str = "d=\"${TMUX_TMPDIR:-/tmp/tmux-$(id -u)}\"; \
+     for s in $(ls -1 \"$d\" 2>/dev/null); do \
+       tmux -L \"$s\" list-sessions \
+         -F \"$s|#{session_name}|#{session_attached}|#{session_activity}|#{session_windows}\" \
+         2>/dev/null; \
+     done";
 
 #[tauri::command]
 pub async fn list_sessions(
@@ -57,12 +66,17 @@ pub(crate) async fn list_sessions_for(pool: &SqlitePool, host: &Host) -> Result<
 pub async fn kill_session(
     pool: State<'_, SqlitePool>,
     host_id: String,
+    socket: String,
     session_name: String,
 ) -> Result<(), String> {
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    let cmd = format!("tmux kill-session -t {}", shell_quote(&session_name));
+    let cmd = format!(
+        "{} kill-session -t {}",
+        tmux_with_socket(&socket),
+        shell_quote(&session_name)
+    );
     run_tmux_control(pool.inner(), &host, &cmd)
         .await
         .with_context(|| format!("kill-session '{}' on {}", session_name, host.display_name))
@@ -74,6 +88,7 @@ pub async fn kill_session(
 pub async fn new_session(
     pool: State<'_, SqlitePool>,
     host_id: String,
+    socket: String,
     session_name: String,
 ) -> Result<(), String> {
     let session_name = session_name.trim();
@@ -87,7 +102,11 @@ pub async fn new_session(
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
     // -d:detached(不要 attach,我們只是建出來);-s:session name
-    let cmd = format!("tmux new-session -d -s {}", shell_quote(session_name));
+    let cmd = format!(
+        "{} new-session -d -s {}",
+        tmux_with_socket(&socket),
+        shell_quote(session_name)
+    );
     run_tmux_control(pool.inner(), &host, &cmd)
         .await
         .with_context(|| format!("new-session '{}' on {}", session_name, host.display_name))
@@ -99,6 +118,7 @@ pub async fn new_session(
 pub async fn rename_session(
     pool: State<'_, SqlitePool>,
     host_id: String,
+    socket: String,
     session_name: String,
     new_name: String,
 ) -> Result<(), String> {
@@ -113,7 +133,8 @@ pub async fn rename_session(
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
     let cmd = format!(
-        "tmux rename-session -t {} {}",
+        "{} rename-session -t {} {}",
+        tmux_with_socket(&socket),
         shell_quote(&session_name),
         shell_quote(new_name),
     );
@@ -145,6 +166,13 @@ async fn run_tmux_control(pool: &SqlitePool, host: &Host, cmd: &str) -> Result<(
 /// POSIX shell 單引號逃脫(同 capture.rs / messaging.rs 各自的 shell_quote)。
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// 帶 socket 的 tmux 指令前綴:`tmux -L '<socket>'`(D-39)。
+/// 所有單 socket 操作(kill / rename / new / attach / capture / send)都用這個
+/// 取代裸 `tmux`,才會打到對的 tmux server。socket 通常是 "default"。
+pub(crate) fn tmux_with_socket(socket: &str) -> String {
+    format!("tmux -L {}", shell_quote(socket))
 }
 
 #[tauri::command]
@@ -233,22 +261,23 @@ pub(crate) fn parse_sessions(stdout: &str) -> Result<Vec<Session>> {
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|line| {
-            let parts: Vec<&str> = line.splitn(4, '|').collect();
-            if parts.len() != 4 {
-                bail!("unexpected tmux list-sessions line (expected 4 fields): {line}");
+            let parts: Vec<&str> = line.splitn(5, '|').collect();
+            if parts.len() != 5 {
+                bail!("unexpected tmux list-sessions line (expected 5 fields): {line}");
             }
-            let attached = parts[1] != "0";
-            let epoch: i64 = parts[2]
+            let attached = parts[2] != "0";
+            let epoch: i64 = parts[3]
                 .parse()
-                .with_context(|| format!("parse activity epoch: {}", parts[2]))?;
+                .with_context(|| format!("parse activity epoch: {}", parts[3]))?;
             let activity = DateTime::from_timestamp(epoch, 0)
                 .ok_or_else(|| anyhow!("invalid activity epoch: {epoch}"))?
                 .to_rfc3339();
-            let windows: i64 = parts[3]
+            let windows: i64 = parts[4]
                 .parse()
-                .with_context(|| format!("parse windows count: {}", parts[3]))?;
+                .with_context(|| format!("parse windows count: {}", parts[4]))?;
             Ok(Session {
-                name: parts[0].to_string(),
+                socket: parts[0].to_string(),
+                name: parts[1].to_string(),
                 attached,
                 activity,
                 windows,

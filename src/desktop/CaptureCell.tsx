@@ -108,7 +108,7 @@ export function CaptureCell({ host, session, onExpand }: Props) {
 
     setRefreshing(true);
     api
-      .captureSession(host.id, session.name)
+      .captureSession(host.id, session.socket, session.name)
       .then(writeResult)
       .catch((err) => {
         const term = xtermRef.current;
@@ -122,7 +122,7 @@ export function CaptureCell({ host, session, onExpand }: Props) {
       .finally(() => setRefreshing(false));
 
     let unlisten: UnlistenFn | undefined;
-    const eventName = `capture-updated:${host.id}:${session.name}`;
+    const eventName = `capture-updated:${host.id}:${session.socket}:${session.name}`;
     listen<CaptureResult>(eventName, (e) => writeResult(e.payload))
       .then((un) => {
         unlisten = un;
@@ -132,13 +132,13 @@ export function CaptureCell({ host, session, onExpand }: Props) {
     return () => {
       unlisten?.();
     };
-  }, [host.id, session.name]);
+  }, [host.id, session.socket, session.name]);
 
   const handleRefresh = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setRefreshing(true);
     try {
-      await api.captureSession(host.id, session.name);
+      await api.captureSession(host.id, session.socket, session.name);
       // 不用手動寫 — listen handler 會接到 event 自動更新
     } catch (err) {
       toast.error(`${session.name} refresh 失敗:${String(err)}`);

@@ -24,27 +24,32 @@ export const api = {
     invoke<Session[]>("list_sessions", { hostId }),
   hostStatus: (hostId: string) =>
     invoke<HostConnectionStatus>("host_status", { hostId }),
-  // SPEC §6.6 kill_session + rename + new(tree view session-level UX)
-  killSession: (hostId: string, sessionName: string) =>
-    invoke<void>("kill_session", { hostId, sessionName }),
-  renameSession: (hostId: string, sessionName: string, newName: string) =>
-    invoke<void>("rename_session", { hostId, sessionName, newName }),
-  newSession: (hostId: string, sessionName: string) =>
-    invoke<void>("new_session", { hostId, sessionName }),
+  // SPEC §6.6 kill_session + rename + new(tree view session-level UX)。socket = D-39
+  killSession: (hostId: string, socket: string, sessionName: string) =>
+    invoke<void>("kill_session", { hostId, socket, sessionName }),
+  renameSession: (
+    hostId: string,
+    socket: string,
+    sessionName: string,
+    newName: string,
+  ) => invoke<void>("rename_session", { hostId, socket, sessionName, newName }),
+  newSession: (hostId: string, socket: string, sessionName: string) =>
+    invoke<void>("new_session", { hostId, socket, sessionName }),
   // M1d — capture(三層 refresh,SPEC §3.3 / §6.3)
-  captureSession: (hostId: string, sessionName: string) =>
-    invoke<CaptureResult>("capture_session", { hostId, sessionName }),
+  captureSession: (hostId: string, socket: string, sessionName: string) =>
+    invoke<CaptureResult>("capture_session", { hostId, socket, sessionName }),
   captureHost: (hostId: string) =>
     invoke<CaptureResult[]>("capture_host", { hostId }),
   captureAll: () => invoke<CaptureResult[]>("capture_all"),
   // M1f — attach(雙向 PTY,SPEC §3.2 / §6.5)
   attachSession: (
     hostId: string,
+    socket: string,
     sessionName: string,
     cols: number,
     rows: number,
   ) =>
-    invoke<string>("attach_session", { hostId, sessionName, cols, rows }),
+    invoke<string>("attach_session", { hostId, socket, sessionName, cols, rows }),
   // 直連 login shell,無 tmux(NOTES.md D-14)。回 attach_id,後續 write/resize/detach
   // 跟 attachSession 共用同一組 commands(都認 attach_id)
   attachShell: (hostId: string, cols: number, rows: number) =>
@@ -64,6 +69,7 @@ export const api = {
   // literal=false → tmux send-keys(payload 視作 tmux key spec,如 "Escape" / "C-l")
   sendMessage: (
     hostId: string,
+    socket: string,
     sessionName: string,
     payload: string,
     sendEnter: boolean,
@@ -71,6 +77,7 @@ export const api = {
   ) =>
     invoke<void>("send_message", {
       hostId,
+      socket,
       sessionName,
       payload,
       sendEnter,

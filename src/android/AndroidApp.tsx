@@ -8,7 +8,7 @@ import { useAndroidBack } from "./useAndroidBack";
 import type { Host } from "@/lib/types";
 
 export type AndroidTarget =
-  | { kind: "tmux"; session: string }
+  | { kind: "tmux"; socket: string; session: string }
   | { kind: "shell" };
 
 type Screen =

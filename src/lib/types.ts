@@ -41,6 +41,7 @@ export const emptyHostForm = (): HostForm => ({
 // Mirrors src-tauri/src/hosts.rs Session
 export type Session = {
   name: string;
+  socket: string; // tmux server socket 名(`tmux -L <socket>`),預設 "default"(D-39)
   attached: boolean;
   activity: string; // RFC3339
   windows: number;
@@ -52,6 +53,7 @@ export type HostConnectionStatus = "connected" | "disconnected" | "connecting";
 // Mirrors src-tauri/src/capture.rs CaptureResult
 export type CaptureResult = {
   host_id: string;
+  socket: string; // D-39
   session_name: string;
   content: string; // 含 ANSI escape codes
   captured_at: string; // RFC3339

@@ -11,6 +11,9 @@ const SCHEMA_SQL: &str = include_str!("../migrations/0001_initial.sql");
 #[derive(Debug, Serialize, Clone)]
 pub struct Session {
     pub name: String,
+    /// tmux server socket 名(`tmux -L <socket>`)。預設 server 是 "default"。
+    /// 同一 host 不同 socket 各是獨立 tmux server,session 名字空間分開(D-39)。
+    pub socket: String,
     pub attached: bool,
     pub activity: String, // RFC3339,frontend format 成相對時間
     pub windows: i64,
@@ -76,7 +79,46 @@ pub async fn open_pool(db_path: &Path) -> Result<SqlitePool> {
         .execute(&pool)
         .await?;
     apply_schema(&pool).await?;
+    migrate_capture_cache_socket(&pool).await?;
     Ok(pool)
+}
+
+/// capture_cache 加 socket 維度的升級(D-39)。
+/// 全新 DB:0001 已建含 socket 的 table → 這裡偵測到 socket 欄存在 → no-op。
+/// 既有 DB:0001 `IF NOT EXISTS` 跳過舊 table → 這裡偵測無 socket → 重建。
+/// capture_cache 是純快取(重新 capture 可重建),重建無損。
+async fn migrate_capture_cache_socket(pool: &SqlitePool) -> Result<()> {
+    use sqlx::Row;
+    let cols = sqlx::query("PRAGMA table_info(capture_cache)")
+        .fetch_all(pool)
+        .await
+        .context("PRAGMA table_info(capture_cache)")?;
+    let has_socket = cols
+        .iter()
+        .any(|r| r.get::<String, _>("name") == "socket");
+    if has_socket {
+        return Ok(());
+    }
+    // 重建:舊資料的 socket 一律補 'default'。
+    for stmt in [
+        "ALTER TABLE capture_cache RENAME TO capture_cache_old",
+        "CREATE TABLE capture_cache (\
+            host_id TEXT NOT NULL, \
+            socket TEXT NOT NULL DEFAULT 'default', \
+            session_name TEXT NOT NULL, \
+            content TEXT NOT NULL, \
+            captured_at TEXT NOT NULL, \
+            PRIMARY KEY (host_id, socket, session_name))",
+        "INSERT INTO capture_cache (host_id, socket, session_name, content, captured_at) \
+            SELECT host_id, 'default', session_name, content, captured_at FROM capture_cache_old",
+        "DROP TABLE capture_cache_old",
+    ] {
+        sqlx::query(stmt)
+            .execute(pool)
+            .await
+            .with_context(|| format!("migrate capture_cache: {stmt}"))?;
+    }
+    Ok(())
 }
 
 async fn apply_schema(pool: &SqlitePool) -> Result<()> {

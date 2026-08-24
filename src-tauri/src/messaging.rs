@@ -25,6 +25,7 @@ use crate::ssh::{self, HostKeyPolicy};
 pub async fn send_message(
     pool: State<'_, SqlitePool>,
     host_id: String,
+    socket: String,
     session_name: String,
     payload: String,
     send_enter: bool,
@@ -45,13 +46,14 @@ pub async fn send_message(
         .await
         .map_err(|e| format!("ssh connect: {e}"))?;
 
+    let tmux = sessions::tmux_with_socket(&socket);
     let target = shell_quote(&session_name);
     let payload_q = shell_quote(&payload);
     let cmd = if literal {
-        format!("tmux send-keys -l -t {target} -- {payload_q}")
+        format!("{tmux} send-keys -l -t {target} -- {payload_q}")
     } else {
         // named keys:tmux 解讀 payload(如 Escape / C-l / Up)
-        format!("tmux send-keys -t {target} {payload_q}")
+        format!("{tmux} send-keys -t {target} {payload_q}")
     };
 
     ssh_session
@@ -61,7 +63,7 @@ pub async fn send_message(
         .map_err(|e| e.to_string())?;
 
     if send_enter {
-        let enter_cmd = format!("tmux send-keys -t {target} Enter");
+        let enter_cmd = format!("{tmux} send-keys -t {target} Enter");
         ssh_session
             .exec(&enter_cmd)
             .await
