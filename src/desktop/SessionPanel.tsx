@@ -15,8 +15,10 @@ import {
   ArrowLeft,
   Plug,
   Power,
+  Upload,
 } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { toast } from "sonner";
 
 import type { CaptureResult, Host, Session } from "@/lib/types";
@@ -61,6 +63,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
   const [termDims, setTermDims] = React.useState<{ cols: number; rows: number } | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
   const [capturedAt, setCapturedAt] = React.useState<string | null>(null);
+  // D-40 拖放上傳:只 tmux target 開放(shell 沒活的 pwd)。dragOver 顯示 overlay。
+  const [dragOver, setDragOver] = React.useState(false);
 
   const onDataRef = React.useRef<IDisposable | null>(null);
   // 滾輪 → tmux copy-mode 用(NOTES D-24)。attachId 是 state 會過時,wheel
@@ -509,6 +513,54 @@ export function SessionPanel({ host, target, onBack }: Props) {
     },
   });
 
+  // D-40 拖放檔案 → 上傳到這個 tmux session 的 pane current pwd。
+  // Tauri webview 攔 OS 級拖放(dragDropEnabled 預設 true),走 onDragDropEvent
+  // 拿本地路徑,後端自己讀檔上傳。shell target 沒活的 pwd → 不註冊(拖了沒反應)。
+  React.useEffect(() => {
+    if (target.kind !== "tmux") return;
+    const { socket, name } = target.session;
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "enter" || p.type === "over") {
+          setDragOver(true);
+        } else if (p.type === "leave") {
+          setDragOver(false);
+        } else if (p.type === "drop") {
+          setDragOver(false);
+          for (const path of p.paths) {
+            const label = path.split(/[/\\]/).pop() || path;
+            const id = toast.loading(`上傳 ${label}…`);
+            api
+              .uploadToSession(host.id, socket, name, path)
+              .then((remote) =>
+                toast.success(
+                  `已上傳 → ${host.ssh_user}@${host.ssh_host}:${remote}`,
+                  { id },
+                ),
+              )
+              .catch((err) =>
+                toast.error(`${label} 上傳失敗:${String(err)}`, { id }),
+              );
+          }
+        }
+      })
+      .then((un) => {
+        if (disposed) un();
+        else unlisten = un;
+      })
+      .catch((err) =>
+        console.warn("[SessionPanel] onDragDropEvent failed:", err),
+      );
+    return () => {
+      disposed = true;
+      unlisten?.();
+      setDragOver(false);
+    };
+  }, [targetId, target, host.id, host.ssh_user, host.ssh_host]);
+
   const isShell = target.kind === "shell";
   const titleIcon = isShell ? (
     <Zap className="h-4 w-4 text-amber-500" />
@@ -631,6 +683,15 @@ export function SessionPanel({ host, target, onBack }: Props) {
 
       <main className="relative flex-1 overflow-hidden bg-[#0a0a0a]">
         <div ref={containerRef} className="absolute inset-0" />
+        {dragOver && target.kind === "tmux" && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 border-2 border-dashed border-primary/70 bg-background/80 backdrop-blur-sm">
+            <Upload className="h-8 w-8 text-primary" />
+            <p className="text-sm font-medium">放開上傳到這個 session 的目前目錄</p>
+            <p className="text-xs text-muted-foreground">
+              {host.ssh_user}@{host.ssh_host} · {target.session.name}
+            </p>
+          </div>
+        )}
       </main>
 
       {mode === "capture" && target.kind === "tmux" && (

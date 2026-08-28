@@ -15,6 +15,7 @@
 //   (SPEC §9.2「每 host 一條 persistent SSH」),drop 時 drive task abort
 
 use anyhow::{anyhow, bail, Result};
+use makiko::bytes::Bytes;
 use makiko::{
     AuthPasswordResult, AuthPubkeyResult, Client, ClientConfig, ClientEvent, SessionEvent,
 };
@@ -28,6 +29,10 @@ use tokio::time::timeout;
 use crate::host_keys;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// 上傳分塊大小(D-40)。串流送 stdin,避免大檔一次進記憶體 Bytes;
+/// 32KB 平衡 round-trip 數與記憶體。
+const UPLOAD_CHUNK: usize = 32 * 1024;
 
 #[allow(dead_code)] // 留欄位給 commands.rs 塞值,M1f attach 才會全用上
 pub enum AuthMaterial<'a> {
@@ -71,6 +76,14 @@ impl SshSession {
     /// capture / list-sessions 走 `exec`,不該動這個。
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// 把 `data` 寫進遠端 `remote_cmd_target`(D-40)。makiko 沒 SFTP,走
+    /// exec `cat > <path>` + 串流 send_stdin + send_eof(經典 SSH-over-exec 傳檔)。
+    /// **`remote_cmd_target` 必須是已 shell-quote 的完整路徑**(caller 負責 quote)。
+    /// `cat >` 會覆蓋同名檔;path 的目錄不存在則 remote shell 回非 0,這裡 bail。
+    pub async fn upload(&self, remote_cmd_target: &str, data: &[u8]) -> Result<()> {
+        upload_on(&self.client, remote_cmd_target, data).await
     }
 }
 
@@ -234,6 +247,55 @@ async fn exec_on(client: &Client, cmd: &str) -> Result<String> {
         }
     }
     Ok(String::from_utf8_lossy(&stdout).into_owned())
+}
+
+/// exec `cat > <path>`,把 data 串流進 stdin 再 send_eof,等 exit status(D-40)。
+async fn upload_on(client: &Client, remote_cmd_target: &str, data: &[u8]) -> Result<()> {
+    let (session, mut sess_rx) = client
+        .open_session(makiko::ChannelConfig::default())
+        .await
+        .map_err(|e| anyhow!("open session: {e}"))?;
+    let cmd = format!("cat > {remote_cmd_target}");
+    session
+        .exec(cmd.as_bytes())
+        .map_err(|e| anyhow!("exec request: {e}"))?
+        .wait()
+        .await
+        .map_err(|e| anyhow!("exec wait: {e}"))?;
+
+    // 串流分塊 — send_stdin 內部處理背壓,await 到寫出去才送下一塊
+    for chunk in data.chunks(UPLOAD_CHUNK) {
+        session
+            .send_stdin(Bytes::copy_from_slice(chunk))
+            .await
+            .map_err(|e| anyhow!("send_stdin: {e}"))?;
+    }
+    session
+        .send_eof()
+        .await
+        .map_err(|e| anyhow!("send_eof: {e}"))?;
+
+    let mut stderr = Vec::<u8>::new();
+    let mut exit_code: Option<i32> = None;
+    while let Some(event) = sess_rx
+        .recv()
+        .await
+        .map_err(|e| anyhow!("recv session event: {e}"))?
+    {
+        match event {
+            SessionEvent::StderrData(bytes) => stderr.extend_from_slice(&bytes),
+            SessionEvent::ExitStatus(code) => exit_code = Some(code as i32),
+            SessionEvent::Eof => break,
+            _ => continue,
+        }
+    }
+    if let Some(code) = exit_code {
+        if code != 0 {
+            let stderr_str = String::from_utf8_lossy(&stderr);
+            bail!("upload `cat` exit code {code}: {stderr_str}");
+        }
+    }
+    Ok(())
 }
 
 async fn do_auth(client: &Client, user: &str, auth: AuthMaterial<'_>) -> Result<()> {

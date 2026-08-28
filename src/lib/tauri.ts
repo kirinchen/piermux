@@ -83,4 +83,18 @@ export const api = {
       sendEnter,
       literal,
     }),
+  // D-40 — 上傳本地檔到 remote pane 的 current pwd(只 tmux target)。
+  // localPath = desktop 拖放給的本地路徑,後端自己讀檔。回完整遠端路徑給 toast。
+  uploadToSession: (
+    hostId: string,
+    socket: string,
+    sessionName: string,
+    localPath: string,
+  ) =>
+    invoke<string>("upload_to_session", {
+      hostId,
+      socket,
+      sessionName,
+      localPath,
+    }),
 };

@@ -7,6 +7,7 @@ mod messaging;
 mod secret;
 mod sessions;
 mod ssh;
+mod upload;
 
 use tauri::Manager;
 
@@ -65,6 +66,8 @@ pub fn run() {
             attach::scroll_session,
             // M1e send_message(不需 attach 直接對 session 送字 / 按鍵,SPEC §3.4 / §6.4)
             messaging::send_message,
+            // D-40 檔案上傳(本地檔 → remote pane current pwd)
+            upload::upload_to_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
