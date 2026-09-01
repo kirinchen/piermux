@@ -135,6 +135,15 @@
   - **卡在 `[0/0]` 的舊 session 自癒**:copy-mode 位置在底部時收到 scroll-down 會自動退出 copy-mode,所以修好後手指往上滑一下就出來了。
   - **隨 v0.1.15 發版**(2026-08-15)。Android 真機驗證待 owner 裝新 APK 後確認:拖曳 claude session 能捲、不再出現 `[0/0]`;純 shell 拖曳仍能看 tmux 歷史。
 
+- D-41(2026-09-01,Tide #137 第一階段「拜師學藝」):**字寬殘字 bug 家族(D-28→D-37)根治研究 —— 只產研究筆記 + refactor 提案,沒動任何 `src/` / `src-tauri/` 檔**。完整筆記:[`doc/note/herdr-control-mode-study.md`](doc/note/herdr-control-mode-study.md)。
+  - **決定性證據(本次補上 D-34 缺的那塊)**:同一 session 同時掛 normal attach client 與 control client 對照。normal attach 收到的是 **tmux 用自己的 grid + 自己的字寬表重新渲染**的結果(app 寫在第 5 欄的 `ZZ`,tmux 因為算 `✅`=2 欄而算成蓋掉 `CD`,再把整列算完的內容當文字送出);control mode 的 `%output` 是 **app 原封不動的 PTY bytes**(含 OSC 52 / `1049h` / 絕對定位 / SGR,byte-for-byte 驗過)。**D-28/D-34/D-37 的殘字機制到此有具體實證。**
+  - **control mode 能不能根治(誠實版)**:能拿掉「tmux 依自己的表定位」這個中間人 —— 渲染鏈的字寬表從 3 個(app / tmux / xterm)變 2 個,而且拿掉的正好是 **piermux 控制不了、綁 host tmux 版本**的那個(D-34 判定無法根治的理由)。但**不是**把字寬問題消滅:剩下的 app↔xterm 接縫是所有終端機都有的。owner 的「F5 必治」對「tmux 增量重繪累積誤差」與「app 自己算錯」兩種假說都成立,分不出來。
+  - **代價(踩紅線)**:control mode 沒有 PTY,輸入只能走 `send-keys -H`(**直踩 D-31**);attach 當下**收不到任何既有畫面**,要自己 `capture-pane` bootstrap;copy-mode 完全不畫給 control client(只吐 `%pane-mode-changed`)→ **D-24 / D-33 / D-38 三次滾動修正全部作廢**。好消息:`-C`(單 C)不需要 tty,可用 makiko exec channel、不必 `request_pty`,跟現有 attach 通道天然分離。
+  - **herdr 學不到我們要的**:它不是 tmux client,自己就是 multiplexer —— `vendor/libghostty-vt` 全套 VT 解析器 + grid,cell 帶 `CellWide{Narrow,Wide,SpacerTail,SpacerHead}`(`src/ghostty/mod.rs:434-447`),寬度只算一次;自家 client 收 **cell 陣列**(`PaneSurfacePatch`,`src/protocol/wire.rs:1173-1193`)不是 ANSI 流。要照抄 = 連 xterm.js 一起換掉。而且 §2.3 顯示**連 herdr 都躲不掉最外層宿主終端的表**(`render_ansi.rs:728`),它只是把接縫壓到 1 個。
+  - **新發現 → 建議路線**:**tmux 的字寬表可以直接量** —— `printf <char>` 後讀 `#{cursor_x}` 就是 tmux 認定的寬度(本機 tmux 3.4 實測 `中`=2 `✅`=2 `⚠️`=2 `①`=1 `○`=1 `±`=1)。所以建議**先做半天 Phase 0**:對 owner 真實 host 量一次表,跟 xterm 現行(D-28 graphemes addon)diff。**有差 → 走「字寬探針 + 自訂 `IUnicodeVersionProvider`」(選項 b+,對輸入零風險、1-2 天,正好補上 D-34 說的「表綁 server tmux 版本」);沒差 → D-34 的診斷就是錯的**,再用「control mode 只當輸出通道、PTY 只當輸入」(選項 a2)驗第二個假說。control mode 全換(a1)與 herdr 式後端 grid(c,2-4 週)都先不做。
+  - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**
+  - spike 腳本全在 `/tmp/pmux-cc-spike/`(不進 repo),實驗走拋棄式 socket `-L pmspike` / `-L pmprobe`,**沒有碰任何既有 session**,做完 `kill-server`。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
