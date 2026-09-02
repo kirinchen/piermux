@@ -540,6 +540,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
         unlistenOutput = await listen<string>(
           `attach-output-${aid0}`,
           (e) => {
+            // D-41:cleanup 可能跑在 listen() resolve 之前,unlisten 拿不到
+            // handle → listener 漏網。cancelled 一設就讓它變啞巴,不然舊
+            // attach 的整屏重繪會寫進新 session 的 grid(錄音外 bytes,
+            // dump4 的 live≠replay 就是這樣來的)
+            if (cancelled) return;
             const t = xtermRef.current;
             if (!t) return;
             // 直接寫進 xterm,不動 alt-screen 切換。先前 strip 掉 alt-screen
@@ -562,6 +567,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
         );
 
         unlistenClosed = await listen(`attach-closed-${aid0}`, () => {
+          if (cancelled) return;
           toast.message("Attach 已關閉(server 端 EOF / exit)");
           // Shell 沒 capture 可退,EOF 就直接離開 panel
           if (target.kind === "shell") {
@@ -571,7 +577,13 @@ export function SessionPanel({ host, target, onBack }: Props) {
           }
         });
 
-        if (cancelled) return; // cleanup 會 unlisten / dispose
+        if (cancelled) {
+          // cleanup 已跑過(在 listen await 期間),它拿不到剛 resolve 的
+          // handle —— 這裡自己收
+          unlistenOutput?.();
+          unlistenClosed?.();
+          return;
+        }
 
         if (target.kind === "tmux") {
           aid = await api.attachSession(

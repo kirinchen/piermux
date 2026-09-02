@@ -530,6 +530,8 @@ function AttachView({
         const aid0 = crypto.randomUUID();
 
         unlistenOutput = await listen<string>(`attach-output-${aid0}`, (e) => {
+          // D-41:cleanup 可能跑在 listen() resolve 前,漏網 listener 變啞巴
+          if (cancelled) return;
           const t = xtermRef.current;
           if (!t) return;
           // 不再 strip alt-screen — 讓 xterm 正常用 alternate buffer,tmux 絕對
@@ -537,11 +539,17 @@ function AttachView({
           t.write(e.payload);
         });
         unlistenClosed = await listen(`attach-closed-${aid0}`, () => {
+          if (cancelled) return;
           toast.message("Attach 已關閉(server 端 EOF / exit)");
           onBack();
         });
 
-        if (cancelled) return; // cleanup 會 unlisten
+        if (cancelled) {
+          // cleanup 已跑過(在 listen await 期間),自己收 handle
+          unlistenOutput?.();
+          unlistenClosed?.();
+          return;
+        }
 
         aid =
           target.kind === "tmux"
