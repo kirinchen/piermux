@@ -120,6 +120,35 @@ pub async fn capture_all(
     Ok(all)
 }
 
+/// D-41 蒐證:抓 pane「可見畫面」純文字(無 `-e` 無 `-S`),給前端跟 xterm
+/// buffer 逐行 diff,定位殘字到底在不在 grid 裡。不進 cache、不 emit event。
+#[tauri::command]
+pub async fn capture_screen(
+    pool: State<'_, SqlitePool>,
+    host_id: String,
+    socket: String,
+    session_name: String,
+) -> Result<String, String> {
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
+    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
+    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
+    let policy = HostKeyPolicy::Tofu {
+        pool: pool.inner(),
+        host_id: &host.id,
+    };
+    let cmd = format!(
+        "{} capture-pane -t {}:0 -p",
+        sessions::tmux_with_socket(&socket),
+        shell_quote(&session_name),
+    );
+    ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, &cmd)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ---- 內部 helpers ----
 
 async fn capture_host_inner(

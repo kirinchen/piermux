@@ -57,6 +57,8 @@ pub fn run() {
             capture::capture_session,
             capture::capture_host,
             capture::capture_all,
+            // D-41 蒐證:F5 時 xterm grid vs tmux 可見畫面 diff
+            capture::capture_screen,
             // M1f attach(雙向 PTY,SPEC §3.2 / §6.5)+ shell direct(NOTES D-14)
             attach::attach_session,
             attach::attach_shell,

@@ -3,7 +3,7 @@ title: 字寬殘字 bug 家族根治研究 —— tmux control mode spike × her
 owner: kirin
 date: 2026-09-01
 tide: "#137(第一階段:拜師學藝 → Phase 0 實測)"
-status: Phase 0 已實測(2026-09-01)—— 結論推翻 §3 主線建議 b+,見文末「Phase 0 實測結果」
+status: Phase 0.6 已實測(2026-09-02)—— H2 reflow 前提對 alt buffer 不成立、split-write 排除,F5 已掛蒐證 hook;見文末
 ---
 
 # 字寬殘字 bug 家族根治研究
@@ -429,3 +429,47 @@ python3 diff2.py
 | `xterm-widths-multi.mjs` | xterm 三 provider 寬度 |
 | `UnicodeV6.shim.ts` / `.mjs` | 從 `xterm.js.map` 取出的 V6 provider(靈敏度對照用),esbuild 轉譯 |
 | `diff2.py` | 三向 diff + 分類報表 |
+
+---
+
+## Phase 0.6 實測結果(2026-09-02,Windows 機)
+
+> 本機沒有 tmux / WSL,Phase 0.5 的「真 tmux 位元組捕捉」半邊做不了(留給 Linux 機)。
+> 改做兩個純 xterm 側的排除實驗 + 一個蒐證 hook(這次有動 src,見下)。
+
+### 排除 1:alt buffer 永不 reflow → H2 的 reflow 前提對主案發現場不成立
+
+xterm.js 6.0.0 source(從 `xterm.js.map` 的 `sourcesContent` 取出):
+
+- `BufferSet.ts`:`this._alt = new Buffer(false, ...)` —— alt buffer `hasScrollback=false`
+- `Buffer.ts` `_isReflowEnabled`:`return this._hasScrollback && ...` —— **alt buffer 恆 false,resize 走 truncate/pad,跟 tmux 一樣不 reflow**
+
+claude code(殘字主案發現場)跑在 alt buffer → **H2「xterm reflow × tmux 不 reflow」解釋不了它**。
+會 reflow 的只有 normal buffer(shell 直用場景)。H2 剩下的「尺寸/捲動路徑」半邊仍活著。
+
+### 排除 2:跨 write() 邊界 grapheme 合併自我一致(0/9)
+
+`@xterm/headless@6.0.0` + repo 同款 graphemes addon 組態,9 組序列
+(⚠️ VS16 / ⚠︎ VS15 / e+U+0301 / 👨‍👩‍👧 ZWJ / 🇹🇼 / 👍🏽 / 1️⃣ keycap / 中文)
+「一次寫入 vs 逐 codepoint 逐次 write()」對照 cursorX + cell 佈局:**0/9 分岔**。
+→ SSH 封包把 grapheme 切在 write 邊界**不是**分岔來源。
+(附帶確認:`attach.rs` 對 UTF-8 不完整尾段本來就有 buffer 處理,`�` 亂碼那類也排除。)
+
+### 蒐證 hook:F5 = grid diff 採證器(本次唯一動 src)
+
+殘字「無法用滑鼠 select」這個老觀察一直沒被用起來 —— 它指向殘字可能**根本不在
+xterm buffer 裡**(renderer 層殘像)。直接做成儀器:
+
+- 新 backend command `capture_screen`:`tmux capture-pane -p`(純文字、只抓可見畫面,無 cache 無 event)
+- `src/lib/grid-diff.ts`:xterm live screen(`baseY` 起 rows 行,`translateToString(true).trimEnd()`)
+  vs capture 逐行 diff,行 / 首個分岔欄
+- SessionPanel `diagnoseThenRedraw`:F5 / 重繪鈕 → 先蒐證再 forceRedraw。
+  防 race:capture 前後各快照,期間畫面變了就丟棄;逾時 1.5s 放行重繪。D-37 自動重繪不掛。
+
+**判讀(owner 下次殘字出現按 F5,看 console `[D-41]`):**
+
+| console 輸出 | 結論 | 下一步 |
+|---|---|---|
+| `grid diff:N 行不一致`(+toast) | 殘字在 xterm grid 裡,tmux↔xterm 真分岔,分岔行/欄在手 | 對著分岔內容查 tmux 增量重繪 op(Phase 0.5 重放鎖定該序列) |
+| `0 行一致` 但殘字看得到 | 殘字是 **renderer 層殘像**,grid 是乾淨的 | 查 DOM renderer / 字型 metrics;理論上 `term.refresh` 就該能治,單獨驗 refresh-only |
+

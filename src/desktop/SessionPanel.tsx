@@ -6,6 +6,7 @@ import { installOsc52Handler } from "../lib/osc52";
 import { installUnicodeWidths } from "../lib/xterm-unicode";
 import { installWebLinks } from "../lib/xterm-links";
 import { fontSizeFor, getTermPrefs } from "../lib/term-prefs";
+import { diffGrids, formatGridDiff, snapshotScreenRows } from "../lib/grid-diff";
 import { useTermFontSync } from "../lib/useTermPrefs";
 import {
   Terminal as TerminalIcon,
@@ -50,6 +51,8 @@ const REDRAW_OUTPUT_SETTLE_MS = 400;
 const REDRAW_INPUT_IDLE_MS = 2000;
 const REDRAW_SUPPRESS_MS = 1500;
 const REDRAW_COOLDOWN_MS = 3000;
+// D-41 蒐證:F5 前的 grid diff capture 逾時 —— 超過就跳過蒐證直接重繪
+const D41_CAPTURE_TIMEOUT_MS = 1500;
 
 export function SessionPanel({ host, target, onBack }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -290,19 +293,64 @@ export function SessionPanel({ host, target, onBack }: Props) {
     }
   }, []);
 
-  // F5 → forceRedraw。capture phase 攔:preventDefault 防 webview 整頁 reload,
-  // stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
+  // D-41 蒐證:按 F5 的瞬間(殘字還在畫面上)先把 xterm grid 跟 tmux 可見畫面
+  // diff 一次再重繪 —— diff 非空 = 殘字真的在 xterm grid 裡(tmux↔xterm 分岔,
+  // 行 / 欄都印在 console);diff 空但畫面看得到殘字 = renderer 層殘像,修法
+  // 完全不同(term.refresh 就該能治)。capture 前後各快照一次,期間畫面有更新
+  // 就丟棄避免 race 假陽性;逾時直接放行重繪,F5 手感不變。
+  const diagnoseThenRedraw = React.useCallback(async () => {
+    const term = xtermRef.current;
+    if (term && target.kind === "tmux") {
+      try {
+        const before = snapshotScreenRows(term);
+        const content = await Promise.race([
+          api.captureScreen(
+            host.id,
+            target.session.socket,
+            target.session.name,
+          ),
+          new Promise<null>((resolve) =>
+            window.setTimeout(() => resolve(null), D41_CAPTURE_TIMEOUT_MS),
+          ),
+        ]);
+        if (content !== null) {
+          const after = snapshotScreenRows(term);
+          if (before.join("\n") !== after.join("\n")) {
+            console.info("[D-41] grid diff 略過:capture 期間畫面有更新");
+          } else {
+            const report = diffGrids(after, content);
+            if (report.rows.length > 0) {
+              console.warn(formatGridDiff(report));
+              toast.info(
+                `D-41:xterm↔tmux grid 差 ${report.rows.length} 行(詳見 console)`,
+              );
+            } else {
+              console.info(
+                `[D-41] grid diff:0 / ${report.comparedRows} 行一致 —— 殘字若可見即為 renderer 殘像`,
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[SessionPanel] D-41 grid diff failed", err);
+      }
+    }
+    await forceRedraw();
+  }, [host.id, target, forceRedraw]);
+
+  // F5 → 蒐證 + forceRedraw。capture phase 攔:preventDefault 防 webview 整頁
+  // reload,stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
   React.useEffect(() => {
     if (mode !== "attach" || !attachId) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "F5") return;
       e.preventDefault();
       e.stopPropagation();
-      void forceRedraw();
+      void diagnoseThenRedraw();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [mode, attachId, forceRedraw]);
+  }, [mode, attachId, diagnoseThenRedraw]);
 
   // Attach 模式 — tmux target 走 attachSession;shell target 走 attachShell
   React.useEffect(() => {
@@ -647,7 +695,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void forceRedraw()}
+              onClick={() => void diagnoseThenRedraw()}
               title="強制重繪(F5)— 畫面出現行頭殘字時按這個"
             >
               <RefreshCw className="h-4 w-4" />

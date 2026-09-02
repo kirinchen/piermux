@@ -41,6 +41,9 @@ export const api = {
   captureHost: (hostId: string) =>
     invoke<CaptureResult[]>("capture_host", { hostId }),
   captureAll: () => invoke<CaptureResult[]>("capture_all"),
+  // D-41 蒐證:pane 可見畫面純文字(無 ANSI、無 scrollback),給 grid diff 用
+  captureScreen: (hostId: string, socket: string, sessionName: string) =>
+    invoke<string>("capture_screen", { hostId, socket, sessionName }),
   // M1f — attach(雙向 PTY,SPEC §3.2 / §6.5)
   attachSession: (
     hostId: string,
