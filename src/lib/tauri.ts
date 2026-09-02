@@ -44,6 +44,9 @@ export const api = {
   // D-41 蒐證:pane 可見畫面純文字(無 ANSI、無 scrollback),給 grid diff 用
   captureScreen: (hostId: string, socket: string, sessionName: string) =>
     invoke<string>("capture_screen", { hostId, socket, sessionName }),
+  // D-41 蒐證:flight recorder dump 寫進系統 temp,回傳完整路徑
+  saveDebugDump: (fileStem: string, contents: string) =>
+    invoke<string>("save_debug_dump", { fileStem, contents }),
   // M1f — attach(雙向 PTY,SPEC §3.2 / §6.5)
   attachSession: (
     hostId: string,

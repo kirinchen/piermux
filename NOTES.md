@@ -147,7 +147,12 @@
     - (1) **alt buffer 永不 reflow**(xterm.js 6.0.0 source 證據:`BufferSet` 以 `hasScrollback=false` 建 alt buffer,`Buffer._isReflowEnabled` 要求 `_hasScrollback` → 恆 false)。claude code 跑在 alt buffer,**H2 的 reflow 機制解釋不了主要案發現場**;會 reflow 的只有 normal buffer。
     - (2) **跨 write() 邊界 grapheme 合併自我一致**:headless xterm 6.0.0(同 graphemes addon 組態)對 9 組序列(VS16 / VS15 / ZWJ / 膚色 / 國旗 / keycap / 組合字 / CJK)做「一次寫入 vs 逐 codepoint 寫入」對照,cursorX 與 cell 佈局 **0/9 分岔** → SSH 封包把 grapheme 切在 write 邊界不是分岔來源(附:`attach.rs` 本來就有 UTF-8 不完整尾段的 buffer 處理)。腳本在 scratchpad `d41/split-write.mjs`,不進 repo。
     - (3) **F5 蒐證 hook(本次唯一動 src)**:新 backend command `capture_screen`(`capture-pane -p` 純文字可見畫面,無 cache 無 event)+ `src/lib/grid-diff.ts` + SessionPanel `diagnoseThenRedraw` —— 按 F5 / 重繪鈕時,先把 xterm live screen(`baseY` 起 rows 行)與 tmux 可見畫面逐行 diff 再重繪:**diff 非空 → 殘字真的在 xterm grid 裡,分岔行/欄直接印在 console(+toast 提示);diff 為空但殘字可見 → 殘字是 renderer 層殘像**(修法完全不同,`term.refresh` 就該能治)。防 race:capture 前後各快照 xterm,期間畫面有更新就丟棄;capture 逾時 1.5s 直接放行重繪,F5 手感不變。D-37 自動重繪**不**掛蒐證(避免每次自動重繪多一條 SSH)。
-    - **下一步:owner 在殘字出現時按 F5,console 的 `[D-41]` 輸出直接把假說空間切成兩半**(grid 分岔 → 繼續查 tmux 增量重繪 op;renderer 殘像 → 查 DOM renderer / 字型 metrics)。Phase 0.5 位元組流重放維持原計畫,在 Linux 機跑。
+    - **實戰結果(2026-09-02 當天,owner dev 實測)—— 殘字確定在 xterm grid 裡,不是 renderer 殘像**。owner 按 F5 蒐證抓到 37/94 與 63/94 行分岔,diff 形狀直接洩露機制:
+      - **Pattern A(殘字頭)**:tmux 行首兩空白 `"  換季…"`,xterm 同行是寬字開頭 `"驗換季…"`,**第 2 欄起完全一致** —— tmux span-diff 認為行首兩格「一直是空白沒變」→ 從不補畫 → xterm 那兩格的舊字永遠清不掉。殘字全是**別行文字的開頭字元**(驗/我/你/給/cd/┌─)。
+      - **Pattern B(整行左移 2 欄)**:xterm 的行 = tmux 的行去掉行首 2 空白,行尾還把下一行開頭拉上來(`…┐ │`)—— **換行點分岔**,同一條長行兩邊斷在差 2 欄的位置。
+      - 結論:某個初始事件讓兩邊 grid 錯位(換行/捲動路徑),之後 tmux 按「自己以為 client 長怎樣」的模型做增量補畫,錯位格永遠蓋不回來 —— 與 H2 的「分岔一次就永久錯位」相符,但禍首不是 reflow(alt buffer 不會 reflow),是**換行點/捲動**。
+    - **flight recorder(第二刀 src 改動)**:attach 起全程錄 PTY 輸出 chunk(原樣保留切割邊界)+ xterm resize 時點(`RecChunk`,上限 16M chars 超過整段放棄);F5 蒐證發現分岔時連同兩邊 grid 快照經新 command `save_debug_dump` 寫進系統 temp(`piermux-d41-*.json`),console + toast 報路徑。拿 dump 在本機 headless xterm 重放(scratchpad `d41/replay.mjs`)= **不需要 tmux 就能決定性重現 + 逐 chunk 鎖定第一個分岔 op**。
+    - **下一步:owner 下次殘字出現按 F5 → 把 toast 報的 dump 檔路徑給 agent** → 離線重放鎖分岔 op → 對症修。Phase 0.5 真 tmux 重放(Linux)備援。
   - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**(Phase 0 之後更該保留 —— 根因還沒抓到)
   - spike 腳本全在 `/tmp/pmux-cc-spike/`(control mode)與 `/tmp/pmux-w0/`(Phase 0 字寬),**不進 repo**;實驗走拋棄式 socket `-L pmspike` / `-L pmprobe` / `-L pmwidth`(session 名 `spike-width-probe`),**沒有碰任何既有 session**,做完 `kill-server` + 刪 socket 檔。
 

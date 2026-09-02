@@ -149,6 +149,29 @@ pub async fn capture_screen(
         .map_err(|e| e.to_string())
 }
 
+/// D-41 蒐證:把前端 flight-recorder dump(attach 起錄的 PTY bytes + 兩邊
+/// grid 快照)寫進系統 temp 檔,回傳完整路徑。拿檔案餵 headless xterm 重放
+/// 就能離線鎖定第一個 grid 分岔 op。
+#[tauri::command]
+pub async fn save_debug_dump(file_stem: String, contents: String) -> Result<String, String> {
+    let stem: String = file_stem
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect();
+    let stem = if stem.is_empty() {
+        "dump".to_string()
+    } else {
+        stem
+    };
+    let name = format!("piermux-{}-{}.json", stem, Utc::now().format("%Y%m%d-%H%M%S"));
+    let path = std::env::temp_dir().join(name);
+    tokio::fs::write(&path, contents)
+        .await
+        .map_err(|e| format!("寫 dump 檔失敗:{e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 // ---- 內部 helpers ----
 
 async fn capture_host_inner(

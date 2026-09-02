@@ -53,6 +53,13 @@ const REDRAW_SUPPRESS_MS = 1500;
 const REDRAW_COOLDOWN_MS = 3000;
 // D-41 蒐證:F5 前的 grid diff capture 逾時 —— 超過就跳過蒐證直接重繪
 const D41_CAPTURE_TIMEOUT_MS = 1500;
+// D-41 flight recorder 上限(chars)。超過就整段放棄 —— ring buffer 沒辦法
+// 從乾淨狀態重放,留一半沒意義
+const D41_RECORD_CAP_CHARS = 16 * 1024 * 1024;
+
+// D-41 flight recorder 的一筆記錄:d = 收到的 PTY 輸出 chunk(保留切割邊界),
+// r = xterm resize 當下的 [cols, rows]
+type RecChunk = { d: string } | { r: [number, number] };
 
 export function SessionPanel({ host, target, onBack }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
@@ -82,6 +89,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
   const autoRedrawTimerRef = React.useRef<number | null>(null);
   const lastAutoRedrawAtRef = React.useRef(0);
   const autoRedrawSuppressUntilRef = React.useRef(0);
+  // D-41 flight recorder:attach 起全程錄 PTY 輸出 chunk(保留切割邊界)+
+  // xterm resize 時點,F5 蒐證發現 grid 分岔時整包 dump → 離線重放鎖分岔 op
+  const recordChunksRef = React.useRef<RecChunk[]>([]);
+  const recordCharsRef = React.useRef(0);
+  const recordOverflowRef = React.useRef(false);
 
   // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)
   // targetId 給 effects 用 dep,穩定字串而非 union object
@@ -324,6 +336,29 @@ export function SessionPanel({ host, target, onBack }: Props) {
               toast.info(
                 `D-41:xterm↔tmux grid 差 ${report.rows.length} 行(詳見 console)`,
               );
+              // 連同 flight recorder 一起 dump —— 離線重放鎖第一個分岔 op
+              const dump = JSON.stringify({
+                version: 1,
+                at: new Date().toISOString(),
+                hostId: host.id,
+                socket: target.session.socket,
+                session: target.session.name,
+                cols: term.cols,
+                rows: term.rows,
+                overflow: recordOverflowRef.current,
+                tmuxScreen: content,
+                xtermRows: after,
+                chunks: recordChunksRef.current,
+              });
+              void api
+                .saveDebugDump("d41", dump)
+                .then((p) => {
+                  console.warn(`[D-41] flight recorder dump → ${p}`);
+                  toast.info(`D-41 dump 已存:${p}`);
+                })
+                .catch((err) =>
+                  console.warn("[SessionPanel] D-41 dump save failed", err),
+                );
             } else {
               console.info(
                 `[D-41] grid diff:0 / ${report.comparedRows} 行一致 —— 殘字若可見即為 renderer 殘像`,
@@ -361,6 +396,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
     let aid: string | null = null;
     let unlistenOutput: UnlistenFn | undefined;
     let unlistenClosed: UnlistenFn | undefined;
+    let resizeDisp: IDisposable | undefined; // D-41 flight recorder 的 resize 記錄
     let cancelled = false;
 
     // D-37:自動重繪(自動版 F5)。行頭殘字(D-34 根因:tmux×xterm 字寬不合)
@@ -433,6 +469,17 @@ export function SessionPanel({ host, target, onBack }: Props) {
         setAttachId(aid);
         attachIdRef.current = aid;
 
+        // D-41 flight recorder:從乾淨畫面(上面 term.clear())起錄。
+        // 起點含當下尺寸,之後 xterm resize 也記進去,重放才能還原時序
+        recordChunksRef.current = [{ r: [cols, rows] }];
+        recordCharsRef.current = 0;
+        recordOverflowRef.current = false;
+        resizeDisp = term.onResize(({ cols: c, rows: r }) => {
+          if (!recordOverflowRef.current) {
+            recordChunksRef.current.push({ r: [c, r] });
+          }
+        });
+
         // D-31:移除 D-29/D-30 的「attach 後 nudge 尺寸」。那招(D-30 送 rows-1 再
         // 送回 rows 逼 tmux 全重畫)在 attach 後 250~420ms 內跑,正好撞上使用者
         // attach 完馬上打字/貼上 → tmux 重繪輸出 + reflow 與輸入交錯 → 多空白、
@@ -450,6 +497,15 @@ export function SessionPanel({ host, target, onBack }: Props) {
             // 但 tmux 用「絕對游標定位」重畫,xterm 在 normal buffer 時座標會
             // desync → 重複片段 / 輸入錯亂(舊 Bug 2/3)。讓 xterm 正常用
             // alternate buffer,座標才對得上。看歷史改用 tmux copy-mode 或 capture。
+            // D-41 flight recorder:寫進 xterm 的同一份 chunk 原樣入錄
+            if (!recordOverflowRef.current) {
+              recordChunksRef.current.push({ d: e.payload });
+              recordCharsRef.current += e.payload.length;
+              if (recordCharsRef.current > D41_RECORD_CAP_CHARS) {
+                recordOverflowRef.current = true;
+                recordChunksRef.current = [];
+              }
+            }
             t.write(e.payload);
             scheduleAutoRedraw(); // D-37:輸出停一拍後自動清殘字
           },
@@ -501,6 +557,9 @@ export function SessionPanel({ host, target, onBack }: Props) {
       }
       onDataRef.current?.dispose();
       onDataRef.current = null;
+      resizeDisp?.dispose();
+      recordChunksRef.current = [];
+      recordCharsRef.current = 0;
       unlistenOutput?.();
       unlistenClosed?.();
       const idToClose = aid;
