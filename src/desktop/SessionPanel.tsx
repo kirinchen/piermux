@@ -94,6 +94,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
   const recordChunksRef = React.useRef<RecChunk[]>([]);
   const recordCharsRef = React.useRef(0);
   const recordOverflowRef = React.useRef(false);
+  // D-41 探針用:Alt+F5 暫停 D-37 自動重繪,讓殘字留在畫面上慢慢驗
+  const autoRedrawPausedRef = React.useRef(false);
 
   // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)
   // targetId 給 effects 用 dep,穩定字串而非 union object
@@ -386,6 +388,15 @@ export function SessionPanel({ host, target, onBack }: Props) {
       if (e.key !== "F5") return;
       e.preventDefault();
       e.stopPropagation();
+      if (e.altKey) {
+        autoRedrawPausedRef.current = !autoRedrawPausedRef.current;
+        const paused = autoRedrawPausedRef.current;
+        console.info(`[D-41] Alt+F5:自動重繪${paused ? "暫停" : "恢復"}`);
+        toast.message(
+          `D-37 自動重繪:${paused ? "已暫停(殘字會留在畫面上)" : "已恢復"}`,
+        );
+        return;
+      }
       if (e.shiftKey) {
         const t = xtermRef.current;
         t?.refresh(0, t.rows - 1);
@@ -435,6 +446,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
       }
       autoRedrawTimerRef.current = window.setTimeout(() => {
         autoRedrawTimerRef.current = null;
+        if (autoRedrawPausedRef.current) return; // D-41 探針:Alt+F5 暫停中
         const now = Date.now();
         if (now < autoRedrawSuppressUntilRef.current) return;
         if (
