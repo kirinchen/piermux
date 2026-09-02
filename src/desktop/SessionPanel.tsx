@@ -375,12 +375,35 @@ export function SessionPanel({ host, target, onBack }: Props) {
 
   // F5 → 蒐證 + forceRedraw。capture phase 攔:preventDefault 防 webview 整頁
   // reload,stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
+  //
+  // D-41 renderer 探針(殘字可見但 grid diff = 0 時用,分辨殘字在顯示層的哪一層):
+  // - Shift+F5:純 term.refresh(全行重畫)。消 → xterm DOM renderer 漏標 dirty。
+  // - Ctrl+F5:compositing 踢一腳(容器 transform 閃一下逼 WebView2 重合成,
+  //   不動 buffer 不動 tmux)。refresh 無效但這個消 → WebView2 合成層殘影。
   React.useEffect(() => {
     if (mode !== "attach" || !attachId) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "F5") return;
       e.preventDefault();
       e.stopPropagation();
+      if (e.shiftKey) {
+        const t = xtermRef.current;
+        t?.refresh(0, t.rows - 1);
+        console.info("[D-41] Shift+F5:refresh-only(DOM renderer dirty 探針)");
+        return;
+      }
+      if (e.ctrlKey) {
+        const el = containerRef.current;
+        if (el) {
+          el.style.transform = "translateZ(0) scale(0.999)";
+          void el.offsetHeight; // 強制 reflow,確保 transform 真的上到合成層
+          window.requestAnimationFrame(() => {
+            el.style.transform = "";
+          });
+        }
+        console.info("[D-41] Ctrl+F5:compositing nudge(WebView2 合成層探針)");
+        return;
+      }
       void diagnoseThenRedraw();
     };
     window.addEventListener("keydown", onKey, true);

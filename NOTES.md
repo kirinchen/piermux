@@ -152,7 +152,9 @@
       - **Pattern B(整行左移 2 欄)**:xterm 的行 = tmux 的行去掉行首 2 空白,行尾還把下一行開頭拉上來(`…┐ │`)—— **換行點分岔**,同一條長行兩邊斷在差 2 欄的位置。
       - 結論:某個初始事件讓兩邊 grid 錯位(換行/捲動路徑),之後 tmux 按「自己以為 client 長怎樣」的模型做增量補畫,錯位格永遠蓋不回來 —— 與 H2 的「分岔一次就永久錯位」相符,但禍首不是 reflow(alt buffer 不會 reflow),是**換行點/捲動**。
     - **flight recorder(第二刀 src 改動)**:attach 起全程錄 PTY 輸出 chunk(原樣保留切割邊界)+ xterm resize 時點(`RecChunk`,上限 16M chars 超過整段放棄);F5 蒐證發現分岔時連同兩邊 grid 快照經新 command `save_debug_dump` 寫進系統 temp(`piermux-d41-*.json`),console + toast 報路徑。拿 dump 在本機 headless xterm 重放(scratchpad `d41/replay.mjs`)= **不需要 tmux 就能決定性重現 + 逐 chunk 鎖定第一個分岔 op**。
-    - **下一步:owner 下次殘字出現按 F5 → 把 toast 報的 dump 檔路徑給 agent** → 離線重放鎖分岔 op → 對症修。Phase 0.5 真 tmux 重放(Linux)備援。
+    - **實戰結果 2(同日稍後)—— 兩種病並存確認**:owner 殘字可見時按 F5,grid diff **0 / 48 行一致** → 這一次的殘字**不在 xterm buffer 裡**,在 renderer / 顯示層(完美解釋「滑鼠 select 不到」)。與上一筆(63/94 grid 真分岔)並存 = 殘字 bug 家族至少兩個獨立成因:(a) grid 分岔(tmux span-diff 蓋不回來),(b) 顯示層殘像。
+    - **renderer 探針(第三刀 src 改動)**:Shift+F5 = 純 `term.refresh`(消 → xterm DOM renderer 漏標 dirty);Ctrl+F5 = 容器 transform 閃一下逼 WebView2 重合成(refresh 無效但這個消 → WebView2 合成層殘影,也解釋「resize 必治」)。都不動 buffer / tmux / 輸入路徑。
+    - **下一步**:殘字出現 → 先 Shift+F5,沒消再 Ctrl+F5,回報哪個有效 → 鎖定顯示層病灶;若普通 F5 又抓到 grid 分岔,**把 toast 報的 dump 檔路徑給 agent** → 離線重放鎖分岔 op。Phase 0.5 真 tmux 重放(Linux)備援。
   - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**(Phase 0 之後更該保留 —— 根因還沒抓到)
   - spike 腳本全在 `/tmp/pmux-cc-spike/`(control mode)與 `/tmp/pmux-w0/`(Phase 0 字寬),**不進 repo**;實驗走拋棄式 socket `-L pmspike` / `-L pmprobe` / `-L pmwidth`(session 名 `spike-width-probe`),**沒有碰任何既有 session**,做完 `kill-server` + 刪 socket 檔。
 
