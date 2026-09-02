@@ -170,6 +170,9 @@
       4. 接線:attach 前 tmux target `applyHostWidths`,shell target 切回預設(直連無 tmux 中間人);desktop + Android 都上。
       - **離線驗證:三個 dump 用 host provider 重放 vs tmux 全部 0 行不一致(3/3)**。
       - 已知縫隙:ZWJ/膚色 cluster 寬仍用 graphemes 預設(CLI 罕見);host 升級 tmux 後快取不會自動重量(清 localStorage 該 key 即可,之後可加 UI);探針腳本未在真 host 跑過,失敗路徑是優雅退預設(`E:` / sanity fail)。
+    - **根因 4(dump4,2026-09-02)—— 漏網 listener**:重放 vs tmux 0 行差、vs live 27 行差、全程無 resize → live 被**錄音外 bytes** 污染。effect 快速重跑(attach/capture 切換、StrictMode、HMR)時 cleanup 跑在 `await listen()` resolve 之前 → unlisten 拿不到 handle → 舊 listener 漏網,舊 attach 的整屏重繪寫進新 session 的 grid。修:listener callback 開頭查 `cancelled`(漏網變啞巴)+ resolve 後發現已 cancelled 就地收 handle(desktop + Android)。
+    - **探針實測插曲**:owner host 的 `tmux -V` 回報 **3.4**,但寬度行為(⚠️=1)≠ 本機 3.4(⚠️=2)—— 同版號不同 build(utf8proc 有無之類)。「量行為」比「看版本」可靠,b+ 走探針是對的。探針本身在真 host 跑成功(122 字,sanity 過,已進 localStorage 快取)。
+    - **狀態(2026-09-02 收工)**:全部修正(race / re-attach 依賴 / term.reset / 漏網 listener / b+ provider)已 commit,但 **owner 回報「還是不行」後收工 —— host provider 是否真的套用(console `套用 host 字寬表` 那行)未確認**。下次 session:請 owner 重 attach 貼 console `[D-41]` 行 + 新 dump 路徑;工具已收進 `scripts/d41/`(replay / inspect / replay-hostprov,用法見該目錄 README,需 `npm i --no-save @xterm/headless@6.0.0`)。
     - **殘留待辦**:renderer 殘像那筆(grid 0 diff 但殘字可見)只出現過一次,Shift+F5/Ctrl+F5 當時因 grid 病蓋台無從分辨 —— race 修掉後若再出現才追。D-34 F5 / D-37 自動重繪 / 蒐證 hook / 探針鍵全數保留,等 owner 實測幾天無殘字再談拆。
   - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**(Phase 0 之後更該保留 —— 根因還沒抓到)
   - spike 腳本全在 `/tmp/pmux-cc-spike/`(control mode)與 `/tmp/pmux-w0/`(Phase 0 字寬),**不進 repo**;實驗走拋棄式 socket `-L pmspike` / `-L pmprobe` / `-L pmwidth`(session 名 `spike-width-probe`),**沒有碰任何既有 session**,做完 `kill-server` + 刪 socket 檔。
