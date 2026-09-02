@@ -96,6 +96,14 @@ export function SessionPanel({ host, target, onBack }: Props) {
   const recordOverflowRef = React.useRef(false);
   // D-41 探針用:Alt+F5 暫停 D-37 自動重繪,讓殘字留在畫面上慢慢驗
   const autoRedrawPausedRef = React.useRef(false);
+  // D-41:target / onBack 走 ref —— HostsView 傳 inline object / callback,
+  // identity 每次父層 render 都變;若放進 attach effect deps,父層一 re-render
+  // 就默默 detach + re-attach(dump1 的殘字就是這樣種下的)。語意變更由
+  // targetId(穩定字串)把關。
+  const targetRef = React.useRef(target);
+  targetRef.current = target;
+  const onBackRef = React.useRef(onBack);
+  onBackRef.current = onBack;
 
   // target.kind 變動時 mode 鎖回 attach(shell 永遠 attach)
   // targetId 給 effects 用 dep,穩定字串而非 union object
@@ -243,6 +251,9 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // Capture 模式 — 只 tmux target 適用,shell 不該進這
   React.useEffect(() => {
     if (mode !== "capture") return;
+    // D-41:target 走 ref 快照,deps 用 targetId 把關語意變更 —— HostsView 傳
+    // inline object,identity 每次父層 render 都變,放 deps 會讓 effect 空轉
+    const target = targetRef.current;
     if (target.kind !== "tmux") return;
     const sessionName = target.session.name;
     const socket = target.session.socket;
@@ -282,7 +293,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
     return () => {
       unlisten?.();
     };
-  }, [mode, host.id, targetId, target]);
+  }, [mode, host.id, targetId]);
 
   // D-34:F5 / 重繪鈕 = 手動強制重繪。行頭殘字(tmux 與 xterm 字寬算法在部分
   // 字元上不一致,tmux 絕對定位補畫時蓋不到舊字)目前無法根治 —— 寬度表跟各
@@ -314,6 +325,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // 就丟棄避免 race 假陽性;逾時直接放行重繪,F5 手感不變。
   const diagnoseThenRedraw = React.useCallback(async () => {
     const term = xtermRef.current;
+    const target = targetRef.current;
     if (term && target.kind === "tmux") {
       try {
         const before = snapshotScreenRows(term);
@@ -373,7 +385,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
       }
     }
     await forceRedraw();
-  }, [host.id, target, forceRedraw]);
+  }, [host.id, forceRedraw]);
 
   // F5 → 蒐證 + forceRedraw。capture phase 攔:preventDefault 防 webview 整頁
   // reload,stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
@@ -426,6 +438,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
     if (mode !== "attach") return;
     const term = xtermRef.current;
     if (!term) return;
+    // D-41:target 走 ref 快照(語意變更由 targetId dep 把關,見 targetRef 註解)
+    const target = targetRef.current;
 
     let aid: string | null = null;
     let unlistenOutput: UnlistenFn | undefined;
@@ -483,28 +497,21 @@ export function SessionPanel({ host, target, onBack }: Props) {
         } catch {
           // container 還沒 layout 完;退回預設 80x24,resize 之後 tmux 會補
         }
-        term.clear();
+        // D-41:reset 而非 clear —— 把上一段 attach 殘留的 alt buffer 內容、
+        // mouse tracking 等 modes 全清掉。舊 frame 一旦留著,tmux 又以為
+        // client 是乾淨的,增量 diff 就永遠蓋不掉舊字(dump1 實錄)。
+        term.reset();
         const cols = term.cols || 80;
         const rows = term.rows || 24;
-        if (target.kind === "tmux") {
-          aid = await api.attachSession(
-            host.id,
-            target.session.socket,
-            target.session.name,
-            cols,
-            rows,
-          );
-        } else {
-          aid = await api.attachShell(host.id, cols, rows);
-        }
-        if (cancelled) {
-          api.detachSession(aid).catch(() => {});
-          return;
-        }
-        setAttachId(aid);
-        attachIdRef.current = aid;
 
-        // D-41 flight recorder:從乾淨畫面(上面 term.clear())起錄。
+        // D-41 根因修正:attach_id 前端先產 → listener 先掛 → 最後才 attach。
+        // backend 的 reader 一 spawn 就開始 emit,舊版「attach 回來才 listen」
+        // 會把 tmux attach 前導(1049h + 整屏初繪)搶在 listener 註冊前整段
+        // 漏掉 → xterm 拿舊畫面當底、之後只收增量 diff → 行頭殘字
+        // (dump1:錄到的流無 1049h 無 2J,重放乾淨 terminal 卻與 tmux 全同)。
+        const aid0 = crypto.randomUUID();
+
+        // D-41 flight recorder:從乾淨畫面(上面 term.reset())起錄。
         // 起點含當下尺寸,之後 xterm resize 也記進去,重放才能還原時序
         recordChunksRef.current = [{ r: [cols, rows] }];
         recordCharsRef.current = 0;
@@ -523,7 +530,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
         // 用手動拖視窗 workaround,待日後找不干擾輸入的解法。輸入正確優先。
 
         unlistenOutput = await listen<string>(
-          `attach-output-${aid}`,
+          `attach-output-${aid0}`,
           (e) => {
             const t = xtermRef.current;
             if (!t) return;
@@ -546,15 +553,36 @@ export function SessionPanel({ host, target, onBack }: Props) {
           },
         );
 
-        unlistenClosed = await listen(`attach-closed-${aid}`, () => {
+        unlistenClosed = await listen(`attach-closed-${aid0}`, () => {
           toast.message("Attach 已關閉(server 端 EOF / exit)");
           // Shell 沒 capture 可退,EOF 就直接離開 panel
           if (target.kind === "shell") {
-            onBack?.();
+            onBackRef.current?.();
           } else {
             setMode("capture");
           }
         });
+
+        if (cancelled) return; // cleanup 會 unlisten / dispose
+
+        if (target.kind === "tmux") {
+          aid = await api.attachSession(
+            aid0,
+            host.id,
+            target.session.socket,
+            target.session.name,
+            cols,
+            rows,
+          );
+        } else {
+          aid = await api.attachShell(aid0, host.id, cols, rows);
+        }
+        if (cancelled) {
+          api.detachSession(aid).catch(() => {});
+          return;
+        }
+        setAttachId(aid);
+        attachIdRef.current = aid;
 
         const disp = term.onData((data) => {
           // D-37:滑鼠 report(D-33 滾輪轉發)跟 focus report 不算「使用者在
@@ -576,7 +604,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
         if (cancelled) return;
         toast.error(`Attach 失敗:${String(err)}`);
         if (target.kind === "shell") {
-          onBack?.();
+          onBackRef.current?.();
         } else {
           setMode("capture");
         }
@@ -608,7 +636,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
       attachIdRef.current = null;
       scrollPendingRef.current = 0;
     };
-  }, [mode, host.id, targetId, target, onBack, forceRedraw]);
+  }, [mode, host.id, targetId, forceRedraw]);
 
   const handleRefresh = async () => {
     if (target.kind !== "tmux") return;

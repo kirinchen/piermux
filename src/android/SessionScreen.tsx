@@ -511,19 +511,42 @@ function AttachView({
         } catch {
           // 退預設 80x24
         }
-        term.clear();
+        // D-41:reset 而非 clear —— 清掉上一段 attach 殘留的 alt buffer / modes,
+        // 舊 frame 留著會讓 tmux 增量 diff 永遠蓋不掉舊字(同 desktop)
+        term.reset();
         const cols = term.cols || 80;
         const rows = term.rows || 24;
+
+        // D-41 根因修正(同 desktop):attach_id 前端先產 → listener 先掛 →
+        // 最後才 attach。晚掛 listener 會漏掉 tmux attach 前導(1049h + 整屏
+        // 初繪),xterm 拿舊畫面當底 + 只收增量 diff → 行頭殘字。
+        const aid0 = crypto.randomUUID();
+
+        unlistenOutput = await listen<string>(`attach-output-${aid0}`, (e) => {
+          const t = xtermRef.current;
+          if (!t) return;
+          // 不再 strip alt-screen — 讓 xterm 正常用 alternate buffer,tmux 絕對
+          // 游標定位才對得上(舊 Bug 2/3:strip 後 normal buffer 座標 desync)。
+          t.write(e.payload);
+        });
+        unlistenClosed = await listen(`attach-closed-${aid0}`, () => {
+          toast.message("Attach 已關閉(server 端 EOF / exit)");
+          onBack();
+        });
+
+        if (cancelled) return; // cleanup 會 unlisten
+
         aid =
           target.kind === "tmux"
             ? await api.attachSession(
+                aid0,
                 hostId,
                 target.socket,
                 target.session,
                 cols,
                 rows,
               )
-            : await api.attachShell(hostId, cols, rows);
+            : await api.attachShell(aid0, hostId, cols, rows);
         if (cancelled) {
           api.detachSession(aid).catch(() => {});
           return;
@@ -534,18 +557,6 @@ function AttachView({
         // attach 後 250~420ms 送 rows-1 再送回,撞上使用者 attach 完馬上打字/貼上
         // → tmux 重繪與輸入交錯 → 多空白、貼上不全。回到 v0.1.7 行為:attach 前
         // fit 一次、之後靠 ResizeObserver。非全寬花屏用手動拖視窗 workaround。
-
-        unlistenOutput = await listen<string>(`attach-output-${aid}`, (e) => {
-          const t = xtermRef.current;
-          if (!t) return;
-          // 不再 strip alt-screen — 讓 xterm 正常用 alternate buffer,tmux 絕對
-          // 游標定位才對得上(舊 Bug 2/3:strip 後 normal buffer 座標 desync)。
-          t.write(e.payload);
-        });
-        unlistenClosed = await listen(`attach-closed-${aid}`, () => {
-          toast.message("Attach 已關閉(server 端 EOF / exit)");
-          onBack();
-        });
 
         // xterm 鍵盤輸入 → 直送 PTY(D-20:Line/Stream toggle 拿掉後恆 stream)
         const disp = term.onData((data) => {

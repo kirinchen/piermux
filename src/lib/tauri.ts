@@ -48,18 +48,28 @@ export const api = {
   saveDebugDump: (fileStem: string, contents: string) =>
     invoke<string>("save_debug_dump", { fileStem, contents }),
   // M1f — attach(雙向 PTY,SPEC §3.2 / §6.5)
+  // D-41:attachId 由前端生成傳入 —— 呼叫端必須「先」用它掛好
+  // attach-output/attach-closed listener 再 attach,不然初繪 bytes 會漏
   attachSession: (
+    attachId: string,
     hostId: string,
     socket: string,
     sessionName: string,
     cols: number,
     rows: number,
   ) =>
-    invoke<string>("attach_session", { hostId, socket, sessionName, cols, rows }),
+    invoke<string>("attach_session", {
+      attachId,
+      hostId,
+      socket,
+      sessionName,
+      cols,
+      rows,
+    }),
   // 直連 login shell,無 tmux(NOTES.md D-14)。回 attach_id,後續 write/resize/detach
   // 跟 attachSession 共用同一組 commands(都認 attach_id)
-  attachShell: (hostId: string, cols: number, rows: number) =>
-    invoke<string>("attach_shell", { hostId, cols, rows }),
+  attachShell: (attachId: string, hostId: string, cols: number, rows: number) =>
+    invoke<string>("attach_shell", { attachId, hostId, cols, rows }),
   writeToSession: (sessionId: string, data: string) =>
     invoke<void>("write_to_session", { sessionId, data }),
   resizeSession: (sessionId: string, cols: number, rows: number) =>

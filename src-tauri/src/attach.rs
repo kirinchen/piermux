@@ -30,7 +30,6 @@ use sqlx::sqlite::SqlitePool;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use uuid::Uuid;
 
 use crate::hosts;
 use crate::sessions;
@@ -97,17 +96,22 @@ async fn open_pty_channel(
     Ok((session, sess_rx))
 }
 
-/// 拿準備好的 (Session, Receiver) + 已生成的 attach_id,spawn reader task,
+/// 拿準備好的 (Session, Receiver) + client 給的 attach_id,spawn reader task,
 /// 把資源塞進 registry。共用給 attach_session / attach_shell。
+///
+/// D-41:attach_id 改由前端生成再傳進來 —— 前端要先用這個 id 掛好
+/// `attach-output-<id>` listener 再呼叫 attach,不然 reader 一 spawn 就 emit,
+/// tmux attach 前導(1049h + 整屏初繪)會搶在 listener 註冊前整段漏掉,
+/// xterm 拿舊畫面當底、之後只收增量 diff → 行頭殘字。
 async fn finalize_attach(
     app: &AppHandle,
     registry: &AttachRegistry,
+    attach_id: String,
     ssh: Arc<SshSession>,
     session: makiko::Session,
     mut sess_rx: makiko::SessionReceiver,
     target: Option<(String, String)>,
 ) -> String {
-    let attach_id = Uuid::new_v4().to_string();
     let app_clone = app.clone();
     let attach_id_clone = attach_id.clone();
 
@@ -163,16 +167,19 @@ async fn finalize_attach(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // tauri command 簽名,參數即 IPC 介面
 pub async fn attach_session(
     app: AppHandle,
     pool: State<'_, SqlitePool>,
     registry: State<'_, AttachRegistry>,
+    attach_id: String,
     host_id: String,
     socket: String,
     session_name: String,
     cols: u32,
     rows: u32,
 ) -> Result<String, String> {
+    validate_attach_id(&registry, &attach_id).await?;
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
@@ -206,12 +213,25 @@ pub async fn attach_session(
     Ok(finalize_attach(
         &app,
         &registry,
+        attach_id,
         ssh,
         session,
         sess_rx,
         Some((socket, session_name)),
     )
     .await)
+}
+
+/// D-41:client 生成的 attach_id 基本驗證 —— 非空、長度合理、不與現有 attach 撞號。
+async fn validate_attach_id(registry: &AttachRegistry, attach_id: &str) -> Result<(), String> {
+    if attach_id.is_empty() || attach_id.len() > 64 {
+        return Err(format!("attach_id 不合法:{attach_id:?}"));
+    }
+    let map = registry.inner.lock().await;
+    if map.contains_key(attach_id) {
+        return Err(format!("attach_id 重複:{attach_id}"));
+    }
+    Ok(())
 }
 
 /// M1.5 直連 shell(NOTES D-14):跟 attach_session 同流程,差別在 exec("tmux attach")
@@ -222,10 +242,12 @@ pub async fn attach_shell(
     app: AppHandle,
     pool: State<'_, SqlitePool>,
     registry: State<'_, AttachRegistry>,
+    attach_id: String,
     host_id: String,
     cols: u32,
     rows: u32,
 ) -> Result<String, String> {
+    validate_attach_id(&registry, &attach_id).await?;
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
@@ -252,7 +274,7 @@ pub async fn attach_shell(
         .await
         .map_err(|e| format!("shell wait: {e}"))?;
 
-    Ok(finalize_attach(&app, &registry, ssh, session, sess_rx, None).await)
+    Ok(finalize_attach(&app, &registry, attach_id, ssh, session, sess_rx, None).await)
 }
 
 /// 滾輪在 alt-screen attach 時的「看歷史」(NOTES D-24,取代 D-23 拿掉的 strip-alt-screen)。

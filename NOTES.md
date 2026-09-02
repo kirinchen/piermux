@@ -154,7 +154,15 @@
     - **flight recorder(第二刀 src 改動)**:attach 起全程錄 PTY 輸出 chunk(原樣保留切割邊界)+ xterm resize 時點(`RecChunk`,上限 16M chars 超過整段放棄);F5 蒐證發現分岔時連同兩邊 grid 快照經新 command `save_debug_dump` 寫進系統 temp(`piermux-d41-*.json`),console + toast 報路徑。拿 dump 在本機 headless xterm 重放(scratchpad `d41/replay.mjs`)= **不需要 tmux 就能決定性重現 + 逐 chunk 鎖定第一個分岔 op**。
     - **實戰結果 2(同日稍後)—— 兩種病並存確認**:owner 殘字可見時按 F5,grid diff **0 / 48 行一致** → 這一次的殘字**不在 xterm buffer 裡**,在 renderer / 顯示層(完美解釋「滑鼠 select 不到」)。與上一筆(63/94 grid 真分岔)並存 = 殘字 bug 家族至少兩個獨立成因:(a) grid 分岔(tmux span-diff 蓋不回來),(b) 顯示層殘像。
     - **renderer 探針(第三刀 src 改動)**:Shift+F5 = 純 `term.refresh`(消 → xterm DOM renderer 漏標 dirty);Ctrl+F5 = 容器 transform 閃一下逼 WebView2 重合成(refresh 無效但這個消 → WebView2 合成層殘影,也解釋「resize 必治」)。都不動 buffer / tmux / 輸入路徑。
-    - **下一步**:殘字出現 → 先 Shift+F5,沒消再 Ctrl+F5,回報哪個有效 → 鎖定顯示層病灶;若普通 F5 又抓到 grid 分岔,**把 toast 報的 dump 檔路徑給 agent** → 離線重放鎖分岔 op。Phase 0.5 真 tmux 重放(Linux)備援。
+    - **根因抓到了(2026-09-02,dump1 = `piermux-d41-20260902-144049.json` 離線重放)**:
+      - 重放證據:dump1 的 29 個 chunk 餵乾淨 headless xterm → 結果**與 tmux grid 0 行不一致**(bytes 無辜);但 live xterm 卻 17/36 行分岔。錄到的流**沒有 attach 前導**(無 `1049h`、無 `2J`,第一個 chunk 直接是 `\e[1;36r\e[36S…` 增量重繪)。
+      - **根因 1(race)**:舊碼 `attachSession` **回來之後**才 `listen(attach-output-<aid>)`;backend `finalize_attach` 一 spawn reader 就 emit,tmux attach 前導(1049h + 整屏初繪)搶在 listener 註冊前整段漏掉 → xterm 留著上一段 attach 的舊畫面當底,tmux 卻以為 client 已收到初繪、之後只送增量 span-diff → 舊字永遠蓋不掉 = 行頭殘字。殘字全是舊 frame 的字、F5(SIGWINCH 全重畫)必治、重放乾淨卻正確 —— 全部吻合。
+      - **根因 2(re-attach 觸發源)**:`HostsView` 傳 `target={{...}}` inline object,attach effect deps 含 `target` → **父層每次 re-render 就默默 detach+re-attach**,每次 re-attach 都擲一次 race 的骰子 → 殘字「常常自己出現」。因為前導(含清屏)也漏了,re-attach 視覺無縫,使用者根本不知道發生過。
+    - **修法(同 commit)**:
+      1. `attach_id` 改前端 `crypto.randomUUID()` 生成 → **先掛 listener 再 attach**(desktop `SessionPanel` + Android `SessionScreen` 都修);backend `attach_session` / `attach_shell` 接受 client id,`validate_attach_id` 擋空/超長/撞號。
+      2. attach 前 `term.reset()` 取代 `term.clear()` —— 清掉舊 alt buffer 內容與 mouse tracking 等 modes,把「舊 frame 當底」的前提整個拔掉(縱深防禦)。
+      3. `target` / `onBack` 改走 ref(`targetRef` / `onBackRef`),attach / capture effect deps 只留 `targetId`(穩定字串)→ 消滅父層 re-render 引發的無謂 re-attach。
+    - **殘留待辦**:renderer 殘像那筆(grid 0 diff 但殘字可見)只出現過一次,Shift+F5/Ctrl+F5 當時因 grid 病蓋台無從分辨 —— race 修掉後若再出現才追。D-34 F5 / D-37 自動重繪 / 蒐證 hook / 探針鍵全數保留,等 owner 實測幾天無殘字再談拆。
   - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**(Phase 0 之後更該保留 —— 根因還沒抓到)
   - spike 腳本全在 `/tmp/pmux-cc-spike/`(control mode)與 `/tmp/pmux-w0/`(Phase 0 字寬),**不進 repo**;實驗走拋棄式 socket `-L pmspike` / `-L pmprobe` / `-L pmwidth`(session 名 `spike-width-probe`),**沒有碰任何既有 session**,做完 `kill-server` + 刪 socket 檔。
 
