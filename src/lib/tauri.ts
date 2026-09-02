@@ -47,6 +47,9 @@ export const api = {
   // D-41 蒐證:flight recorder dump 寫進系統 temp,回傳完整路徑
   saveDebugDump: (fileStem: string, contents: string) =>
     invoke<string>("save_debug_dump", { fileStem, contents }),
+  // D-41 b+:per-host tmux 字寬探針(拋棄式 socket,回 raw 輸出由前端 parse)
+  probeHostWidths: (hostId: string, chars: string[]) =>
+    invoke<string>("probe_host_widths", { hostId, chars }),
   // M1f — attach(雙向 PTY,SPEC §3.2 / §6.5)
   // D-41:attachId 由前端生成傳入 —— 呼叫端必須「先」用它掛好
   // attach-output/attach-closed listener 再 attach,不然初繪 bytes 會漏

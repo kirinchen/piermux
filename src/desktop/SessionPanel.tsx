@@ -7,6 +7,7 @@ import { installUnicodeWidths } from "../lib/xterm-unicode";
 import { installWebLinks } from "../lib/xterm-links";
 import { fontSizeFor, getTermPrefs } from "../lib/term-prefs";
 import { diffGrids, formatGridDiff, snapshotScreenRows } from "../lib/grid-diff";
+import { applyHostWidths, resetDefaultProvider } from "../lib/width-profile";
 import { useTermFontSync } from "../lib/useTermPrefs";
 import {
   Terminal as TerminalIcon,
@@ -496,6 +497,13 @@ export function SessionPanel({ host, target, onBack }: Props) {
           fitRef.current?.fit();
         } catch {
           // container 還沒 layout 完;退回預設 80x24,resize 之後 tmux 會補
+        }
+        // D-41 b+:tmux target 套用該 host 實測字寬表(有快取才切,沒快取
+        // 背景 probe 下次生效);shell 直連沒有 tmux 中間人,切回預設表
+        if (target.kind === "tmux") {
+          applyHostWidths(term, host.id);
+        } else {
+          resetDefaultProvider(term);
         }
         // D-41:reset 而非 clear —— 把上一段 attach 殘留的 alt buffer 內容、
         // mouse tracking 等 modes 全清掉。舊 frame 一旦留著,tmux 又以為

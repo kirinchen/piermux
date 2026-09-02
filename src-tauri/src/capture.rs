@@ -172,6 +172,68 @@ pub async fn save_debug_dump(file_stem: String, contents: String) -> Result<Stri
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// D-41 b+:對 host 實測 tmux 字寬表。拋棄式 socket(`-L pmxw<pid>`),每字元
+/// respawn 一次 pane、printf 後讀 `#{cursor_x}` = tmux 認定的寬度;做完
+/// kill-server,不碰任何既有 session。chars 由前端提供(單一真相在
+/// width-profile.ts),回 raw 輸出(`V:`/`W:<idx>:<w>` 行)由前端 parse。
+#[tauri::command]
+pub async fn probe_host_widths(
+    pool: State<'_, SqlitePool>,
+    host_id: String,
+    chars: Vec<String>,
+) -> Result<String, String> {
+    if chars.is_empty() || chars.len() > 512 {
+        return Err(format!("chars 數量不合法:{}", chars.len()));
+    }
+    let mut oct_lines = String::new();
+    for ch in &chars {
+        if ch.is_empty() || ch.len() > 16 {
+            return Err(format!("探針字元不合法:{ch:?}"));
+        }
+        for b in ch.as_bytes() {
+            oct_lines.push_str(&format!("\\{b:03o}"));
+        }
+        oct_lines.push('\n');
+    }
+
+    let host = hosts::fetch_one(pool.inner(), &host_id)
+        .await
+        .map_err(|e| format!("fetch host: {e}"))?;
+    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
+    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
+    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
+    let policy = HostKeyPolicy::Tofu {
+        pool: pool.inner(),
+        host_id: &host.id,
+    };
+
+    // 腳本走 heredoc 餵 octal 字元行;pane 內只有 printf + sleep,外層只用
+    // tmux CLI(new-session / respawn-pane / display-message),相容性最大。
+    let script = format!(
+        r#"V=$(tmux -V 2>/dev/null || echo none)
+printf 'V:%s\n' "$V"
+S=pmxw$$
+tmux -L "$S" kill-server >/dev/null 2>&1 || true
+if ! tmux -L "$S" new-session -d -s p -x 40 -y 5 'sleep 120' 2>/dev/null; then printf 'E:new-session\n'; exit 0; fi
+i=0
+while IFS= read -r oct; do
+  i=$((i+1))
+  tmux -L "$S" respawn-pane -k -t p:0 "sh -c 'printf \"\\033[H\\033[2J$oct\"; sleep 120'" 2>/dev/null
+  sleep 0.05
+  w=$(tmux -L "$S" display-message -p -t p:0 '#{{cursor_x}}' 2>/dev/null)
+  [ -n "$w" ] || w=-1
+  printf 'W:%s:%s\n' "$i" "$w"
+done <<'PMXEOF'
+{oct_lines}PMXEOF
+tmux -L "$S" kill-server >/dev/null 2>&1 || true
+"#
+    );
+
+    ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, &script)
+        .await
+        .map_err(|e| format!("width probe on host {}: {e}", host.display_name))
+}
+
 // ---- 內部 helpers ----
 
 async fn capture_host_inner(

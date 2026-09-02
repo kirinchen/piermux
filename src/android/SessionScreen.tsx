@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "@/lib/osc52";
 import { installUnicodeWidths } from "@/lib/xterm-unicode";
+import { applyHostWidths, resetDefaultProvider } from "@/lib/width-profile";
 import { installWebLinks } from "@/lib/xterm-links";
 import { fontSizeFor, getTermPrefs } from "@/lib/term-prefs";
 import { useTermFontSync } from "@/lib/useTermPrefs";
@@ -510,6 +511,12 @@ function AttachView({
           fitRef.current?.fit();
         } catch {
           // 退預設 80x24
+        }
+        // D-41 b+:tmux target 套用該 host 實測字寬表(同 desktop)
+        if (target.kind === "tmux") {
+          applyHostWidths(term, hostId);
+        } else {
+          resetDefaultProvider(term);
         }
         // D-41:reset 而非 clear —— 清掉上一段 attach 殘留的 alt buffer / modes,
         // 舊 frame 留著會讓 tmux 增量 diff 永遠蓋不掉舊字(同 desktop)

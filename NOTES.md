@@ -162,6 +162,14 @@
       1. `attach_id` 改前端 `crypto.randomUUID()` 生成 → **先掛 listener 再 attach**(desktop `SessionPanel` + Android `SessionScreen` 都修);backend `attach_session` / `attach_shell` 接受 client id,`validate_attach_id` 擋空/超長/撞號。
       2. attach 前 `term.reset()` 取代 `term.clear()` —— 清掉舊 alt buffer 內容與 mouse tracking 等 modes,把「舊 frame 當底」的前提整個拔掉(縱深防禦)。
       3. `target` / `onBack` 改走 ref(`targetRef` / `onBackRef`),attach / capture effect deps 只留 `targetId`(穩定字串)→ 消滅父層 re-render 引發的無謂 re-attach。
+    - **根因 3(race 修掉後浮出,dump2/dump3 = 完整前導錄音)—— per-host 字寬表不合,Phase 0 誠實記帳第 1 條成真**:dump3 重放 = live 完全一致(決定性)、vs tmux 恰 1 行 —— 解碼該行 bytes(`\e[12;4H␣\x08\x08⚠\x08⚠{FE0F}…`)證明 **owner 真實 host 的 tmux 認 `⚠️`(26A0+FE0F)寬 1、xterm graphemes 認 2**;xterm 加寬時吞掉隔壁空格,後續文字整串偏 1 欄。再用三個 provider 重放對照:dump2/3 與 `'6'` 全合(🎨💰💩 等 emoji 該 host 全算窄)、dump1(✅ 多)卻與 `'15-graphemes'` 合 —— **該 host 表(✅=2、大 emoji=1、VS16 不加寬)不等於任何現成 provider**,是舊 glibc wcwidth 混合表。D-28 全域切 graphemes 修了本機 3.4 卻讓這台舊 host 一直錯,殘字家族「修不死」的最後一塊。
+    - **b+ 實作(owner 拍板開工,同 commit)**:
+      1. backend `probe_host_widths(host_id, chars)`:拋棄式 socket `-L pmxw<pid>`,每字 respawn-pane + printf 後讀 `#{cursor_x}`(Phase 0 probeA 形),~130 字 ≈ 10s,做完 kill-server,不碰既有 session;字集單一真相在前端。
+      2. `src/lib/width-profile.ts`:探針字集(VS16 對 / 常見 emoji / ambiguous / sanity)、localStorage 快取 `piermux:widths:<hostId>`、背景 refresh(**當次不切,下次 attach 生效**,當次靠 D-37 兜底)、sanity(A=1 且 中=2 否則整表作廢退預設)。
+      3. `src/lib/host-width-provider.ts`:自訂 `IUnicodeVersionProvider` —— cluster/joining 借 graphemes provider(假 terminal 收 register 的實例),寬度用探針表覆蓋;VS16 加寬與否由 bare/pair 多數決,不加寬時 FE0F join 的 cluster 寬維持前字寬。charProperties 位元格式(bit0 join / bit1-2 width / bit3+ kind)抄自 xterm 6.0.0 UnicodeService(MIT,升版要重驗)。
+      4. 接線:attach 前 tmux target `applyHostWidths`,shell target 切回預設(直連無 tmux 中間人);desktop + Android 都上。
+      - **離線驗證:三個 dump 用 host provider 重放 vs tmux 全部 0 行不一致(3/3)**。
+      - 已知縫隙:ZWJ/膚色 cluster 寬仍用 graphemes 預設(CLI 罕見);host 升級 tmux 後快取不會自動重量(清 localStorage 該 key 即可,之後可加 UI);探針腳本未在真 host 跑過,失敗路徑是優雅退預設(`E:` / sanity fail)。
     - **殘留待辦**:renderer 殘像那筆(grid 0 diff 但殘字可見)只出現過一次,Shift+F5/Ctrl+F5 當時因 grid 病蓋台無從分辨 —— race 修掉後若再出現才追。D-34 F5 / D-37 自動重繪 / 蒐證 hook / 探針鍵全數保留,等 owner 實測幾天無殘字再談拆。
   - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**(Phase 0 之後更該保留 —— 根因還沒抓到)
   - spike 腳本全在 `/tmp/pmux-cc-spike/`(control mode)與 `/tmp/pmux-w0/`(Phase 0 字寬),**不進 repo**;實驗走拋棄式 socket `-L pmspike` / `-L pmprobe` / `-L pmwidth`(session 名 `spike-width-probe`),**沒有碰任何既有 session**,做完 `kill-server` + 刪 socket 檔。

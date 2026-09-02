@@ -16,9 +16,17 @@
 import type { Terminal } from "@xterm/xterm";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 
+let defaultVersion: string | null = null;
+
 export function installUnicodeWidths(term: Terminal): void {
   term.loadAddon(new UnicodeGraphemesAddon());
   // addon 會註冊最新的 provider(目前 '15-graphemes');取最後一個避免寫死 id。
   const versions = term.unicode.versions;
   term.unicode.activeVersion = versions[versions.length - 1];
+  defaultVersion = term.unicode.activeVersion;
+}
+
+/// D-41 b+:width-profile 在 host provider 不適用時要切回的預設 provider id。
+export function getDefaultUnicodeVersion(): string | null {
+  return defaultVersion;
 }
