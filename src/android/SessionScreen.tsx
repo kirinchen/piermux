@@ -4,7 +4,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { installOsc52Handler } from "@/lib/osc52";
 import { installUnicodeWidths } from "@/lib/xterm-unicode";
-import { applyHostWidths, resetDefaultProvider } from "@/lib/width-profile";
+import {
+  applyHostWidths,
+  probeAndApply,
+  resetDefaultProvider,
+} from "@/lib/width-profile";
+import { redrawAttach } from "@/lib/redraw";
 import { installWebLinks } from "@/lib/xterm-links";
 import { fontSizeFor, getTermPrefs } from "@/lib/term-prefs";
 import { useTermFontSync } from "@/lib/useTermPrefs";
@@ -28,10 +33,13 @@ type Mode = "capture" | "attach";
 // 手機寬度有限,attach 要塞得下 tmux 的 cols
 const ATTACH_FONT_DELTA = -1;
 
-// D-42:attach 輸出停一拍後重畫 render 層清殘字(對齊 desktop)。D-34 殘字是
-// DOM renderer 的 stale glyph,term.refresh 重畫即可 —— 純 client 端、不碰 tmux、
-// 零輸入風險、無自迴圈。詳見 doc/note/herdr-control-mode-study.md 題 6。
+// D-43:attach 輸出停一拍後整屏重畫清殘字(對齊 desktop)。走 redrawAttach =
+// tmux refresh-client(不 SIGWINCH、不驚動 app);保護同 desktop:IDLE 避免打字中
+// 游標閃、SUPPRESS 防自迴圈、COOLDOWN 限流。
 const REDRAW_OUTPUT_SETTLE_MS = 400;
+const REDRAW_INPUT_IDLE_MS = 700;
+const REDRAW_SUPPRESS_MS = 1500;
+const REDRAW_COOLDOWN_MS = 2000;
 
 type Props = {
   hostId: string;
@@ -343,7 +351,12 @@ function AttachView({
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const onDataRef = useRef<IDisposable | null>(null);
-  const autoRedrawTimerRef = useRef<number | null>(null); // D-42 自動重繪 debounce
+  // D-43 自動重繪狀態(同 desktop,全走 ref)
+  const autoRedrawTimerRef = useRef<number | null>(null);
+  const lastInputAtRef = useRef(0);
+  const lastAutoRedrawAtRef = useRef(0);
+  const autoRedrawSuppressUntilRef = useRef(0);
+  const redrawInflightRef = useRef(false);
   const [attachId, setAttachId] = useState<string | null>(null);
   const [ctrlSticky, setCtrlSticky] = useState(false);
   const [altSticky, setAltSticky] = useState(false);
@@ -504,17 +517,42 @@ function AttachView({
     let unlistenClosed: UnlistenFn | undefined;
     let cancelled = false;
 
-    // D-42:輸出停 SETTLE 後重畫 render 層清殘字(只 refresh、不 resize、不碰 tmux)
+    // D-43:整屏重畫(refresh-client 主路、resize 舞步退路),inflight 守門
+    const forceRedraw = async () => {
+      const t = xtermRef.current;
+      if (!aid || !t || redrawInflightRef.current) return;
+      redrawInflightRef.current = true;
+      try {
+        await redrawAttach(aid, t);
+      } catch (err) {
+        console.warn("[AttachView] forceRedraw failed", err);
+      } finally {
+        redrawInflightRef.current = false;
+      }
+    };
+
+    // D-43:輸出停 SETTLE 後整屏重畫清殘字(保護邏輯同 desktop scheduleAutoRedraw)
     const scheduleAutoRedraw = () => {
       if (autoRedrawTimerRef.current !== null) {
         window.clearTimeout(autoRedrawTimerRef.current);
       }
       autoRedrawTimerRef.current = window.setTimeout(() => {
         autoRedrawTimerRef.current = null;
+        const now = Date.now();
+        if (now < autoRedrawSuppressUntilRef.current) return;
+        if (
+          now - lastInputAtRef.current < REDRAW_INPUT_IDLE_MS ||
+          now - lastAutoRedrawAtRef.current < REDRAW_COOLDOWN_MS
+        ) {
+          scheduleAutoRedraw();
+          return;
+        }
         const t = xtermRef.current;
-        if (cancelled || !t) return;
+        if (cancelled || !aid || !t) return;
         if (t.buffer.active.type !== "alternate") return;
-        t.refresh(0, t.rows - 1);
+        lastAutoRedrawAtRef.current = now;
+        autoRedrawSuppressUntilRef.current = now + REDRAW_SUPPRESS_MS;
+        void forceRedraw();
       }, REDRAW_OUTPUT_SETTLE_MS);
     };
 
@@ -532,9 +570,14 @@ function AttachView({
         } catch {
           // 退預設 80x24
         }
-        // D-41 b+:tmux target 套用該 host 實測字寬表(同 desktop)
+        // D-41 b+ / D-43:tmux target 套用該 host 實測字寬表;沒快取就背景
+        // probe、量完當場套用 + 整屏重畫(同 desktop)
         if (target.kind === "tmux") {
-          applyHostWidths(term, hostId);
+          if (!applyHostWidths(term, hostId)) {
+            void probeAndApply(term, hostId).then((applied) => {
+              if (applied && !cancelled) void forceRedraw();
+            });
+          }
         } else {
           resetDefaultProvider(term);
         }
@@ -557,7 +600,7 @@ function AttachView({
           // 不再 strip alt-screen — 讓 xterm 正常用 alternate buffer,tmux 絕對
           // 游標定位才對得上(舊 Bug 2/3:strip 後 normal buffer 座標 desync)。
           t.write(e.payload);
-          scheduleAutoRedraw(); // D-42:輸出停一拍後重畫 render 層清殘字
+          scheduleAutoRedraw(); // D-43:輸出停一拍後整屏重畫清殘字
         });
         unlistenClosed = await listen(`attach-closed-${aid0}`, () => {
           if (cancelled) return;
@@ -596,6 +639,13 @@ function AttachView({
 
         // xterm 鍵盤輸入 → 直送 PTY(D-20:Line/Stream toggle 拿掉後恆 stream)
         const disp = term.onData((data) => {
+          // D-43:滑鼠 / focus report 不算打字(同 desktop)
+          const isPointerReport =
+            data.startsWith("\x1b[<") ||
+            data.startsWith("\x1b[M") ||
+            data === "\x1b[I" ||
+            data === "\x1b[O";
+          if (!isPointerReport) lastInputAtRef.current = Date.now();
           if (aid) {
             api.writeToSession(aid, data).catch((err) => {
               console.warn("[AttachView] writeToSession failed", err);

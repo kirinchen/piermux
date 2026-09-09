@@ -77,6 +77,10 @@ export const api = {
     invoke<void>("write_to_session", { sessionId, data }),
   resizeSession: (sessionId: string, cols: number, rows: number) =>
     invoke<void>("resize_session", { sessionId, cols, rows }),
+  // D-43:tmux refresh-client 重送整個 client 畫面(不 SIGWINCH、不驚動 app)。
+  // shell target / tty 未知會 reject,呼叫端退回 resize 舞步。
+  refreshAttach: (sessionId: string) =>
+    invoke<void>("refresh_attach", { sessionId }),
   detachSession: (sessionId: string) =>
     invoke<void>("detach_session", { sessionId }),
   // 滾輪在 alt-screen attach 時走 tmux copy-mode 看歷史(NOTES D-24)。

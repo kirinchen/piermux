@@ -65,6 +65,8 @@ pub fn run() {
             // M1f attach(雙向 PTY,SPEC §3.2 / §6.5)+ shell direct(NOTES D-14)
             attach::attach_session,
             attach::attach_shell,
+            // D-43:tmux refresh-client 清殘字(不 SIGWINCH)
+            attach::refresh_attach,
             attach::write_to_session,
             attach::resize_session,
             attach::detach_session,

@@ -183,6 +183,18 @@
   - **收尾**:refreshOnly 無自迴圈、不撞輸入 → 拔掉只為 resize 舞步設的 `REDRAW_INPUT_IDLE_MS` / `REDRAW_SUPPRESS_MS` / `REDRAW_COOLDOWN_MS` 與對應 ref(`lastInputAtRef` / `lastAutoRedrawAtRef` / `autoRedrawSuppressUntilRef`)+ onData 的 pointer-report 判斷,只留 SETTLE debounce。
   - ⚠️ **未測的組合**:refreshOnly 的實機確認是在 D-41 root-cause 修正**之前**的 base 上做的(殘字清掉、不抖)。疊到 D-41 之上(listener race / re-attach / term.reset / b+ provider 都已修)後**尚未合併實測** —— D-41 收工時 owner 還回報「還是不行」。**請在這個合併 build 重 attach 驗幾天**:殘字是否乾淨、refreshOnly 夠不夠(不夠就 F5 兜、回頭看是不是又冒 grid 病)。詳細 byte-replay 研究(題 4-6)留在分支 `d42-backup` 的 herdr 筆記,要時再併入本文。
 
+- D-43(2026-09-09,owner 裝 v0.1.18 回報「殘影不會消了 + F5 會卡」):**清殘字主路改 `tmux refresh-client`(不 SIGWINCH、不驚動 app)+ F5 恢復立即 + 字寬探針量完當場套用**。
+  - **D-42 前提在實戰被推翻**:純 `term.refresh` 治不了殘影(= 殘影在 buffer 層,不是 renderer 層);resize 舞步治得了。所以自動重繪必須回到「整屏重畫」—— 但 resize 舞步是 SIGWINCH,會驚動 pane 裡的 app(D-31 撞輸入前科),只能小心翼翼跑。
+  - **正解 = `tmux refresh-client -t <tty>`**(就是 `prefix r`):tmux 把它認定的整個 client 畫面重送一次,xterm 每格都被蓋過 → 任何 grid 分岔歸零;只重送 tmux 自己的畫面、不 SIGWINCH、不動 PTY、app 完全不知道 → 沒有 D-31 風險,也省掉 2 次 window_change。
+    - 怎麼打到「我們這個 client」:attach 指令改 `sh -c 'printf "\033]7777;%s\007" "$(tty)"; exec tmux -L sock attach -t sess'`,reader 在流開頭(≤4KB)掃 OSC 7777 抓 tty 存進 `AttachHandle.tty`(xterm 對未註冊 OSC 靜默忽略,flight recorder 錄到也無害)。包 `sh -c` 是為了 `$(tty)` 不受 login shell 是 fish / csh 影響。
+    - 新 command `refresh_attach(aid)`:在 attach 同一條 SSH connection 開 exec channel 跑 `refresh-client -t <tty>`;shell target / tty 沒抓到 → Err,前端退回 resize 舞步。
+  - **前端共用 `src/lib/redraw.ts` `redrawAttach()`**:refresh-client 主路、失敗退 resize 舞步、最後 `term.refresh`。desktop F5 / 重繪鈕 / 自動重繪、Android 自動重繪全走它。
+  - **自動重繪回到 D-37 的保護骨架**(IDLE 700ms 避免打字中游標閃、SUPPRESS 1500 防自迴圈、COOLDOWN 2000 限流)但主路換成 refresh-client;Android 同步(D-42 補的純 refresh 升級成同一套)。
+  - **F5 卡的原因**:D-41 把蒐證(capture round-trip ≤1.5s + 最多 16MB JSON 序列化)擋在重繪前面。改:**F5 / 重繪鈕 = 立即重畫**;蒐證搬到 **Shift+F5**(要採證才按);Ctrl+F5 合成層探針拿掉(假說已死);Alt+F5 暫停保留。
+  - **b+ 第一次 attach 也對齊**:release 新裝時 localStorage 沒快取,舊碼「當次不切、下次生效」→ v0.1.18 第一次 attach 必殘。改 `probeAndApply`:probe 完當場切 provider + `forceRedraw` 一次(整屏按新表重排)。
+  - 三層合起來:**對齊(b+)減少分岔 + refresh-client 自癒把殘餘分岔在輸出停 400ms 後歸零 + F5 隨手一按立即乾淨**。若這版還有殘影,Shift+F5 採證。
+  - 沒實機:`sh -c` 包裝與 OSC tty 標記在真 host 未跑過(盲寫);退路都在(tty 沒抓到 → resize 舞步,行為等同 v0.1.17)。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK

@@ -7,7 +7,12 @@ import { installUnicodeWidths } from "../lib/xterm-unicode";
 import { installWebLinks } from "../lib/xterm-links";
 import { fontSizeFor, getTermPrefs } from "../lib/term-prefs";
 import { diffGrids, formatGridDiff, snapshotScreenRows } from "../lib/grid-diff";
-import { applyHostWidths, resetDefaultProvider } from "../lib/width-profile";
+import {
+  applyHostWidths,
+  probeAndApply,
+  resetDefaultProvider,
+} from "../lib/width-profile";
+import { redrawAttach } from "../lib/redraw";
 import { useTermFontSync } from "../lib/useTermPrefs";
 import {
   Terminal as TerminalIcon,
@@ -45,12 +50,16 @@ type Props = {
 
 type Mode = "capture" | "attach";
 
-// D-37 + D-42 自動重繪:attach 輸出停 SETTLE 後重畫 render 層(refreshOnly)。
-// D-34 殘字是 DOM renderer 的 stale glyph(Phase 0.5/0.6 確認 buffer 忠實),
-// 只要 term.refresh 重畫就好。refreshOnly 純 client 端、不碰 tmux、零回傳輸出
-// → 無自迴圈、不撞輸入,原本為 resize 舞步設的 IDLE / SUPPRESS / COOLDOWN 保護
-// 全收掉(D-42),只留 SETTLE debounce 把連續輸出合併成一次重畫。
+// D-37 / D-43 自動重繪:attach 輸出停 SETTLE 後整屏重畫(redrawAttach =
+// tmux refresh-client,不 SIGWINCH、不驚動 app)。D-42 的純 refresh 實戰治不了
+// (殘字在 buffer 層),所以回到「重畫整屏」但換成安全的路。
+// 保護:距最後一次鍵盤輸入 ≥ IDLE(refresh-client 不撞輸入,這只是避免打字中
+// 游標閃);重畫自己引發的整屏 echo 在 SUPPRESS 內不再排程(防自迴圈);兩次
+// 自動重畫至少隔 COOLDOWN(限流,整屏重送有頻寬成本)。
 const REDRAW_OUTPUT_SETTLE_MS = 400;
+const REDRAW_INPUT_IDLE_MS = 700;
+const REDRAW_SUPPRESS_MS = 1500;
+const REDRAW_COOLDOWN_MS = 2000;
 // D-41 蒐證:F5 前的 grid diff capture 逾時 —— 超過就跳過蒐證直接重繪
 const D41_CAPTURE_TIMEOUT_MS = 1500;
 // D-41 flight recorder 上限(chars)。超過就整段放棄 —— ring buffer 沒辦法
@@ -84,8 +93,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // 正 = 往回捲),完成後若還有 pending 再送一次 → 最多一個在途 + 一個排隊。
   const scrollInflightRef = React.useRef(false);
   const scrollPendingRef = React.useRef(0);
-  // D-37 自動重繪的 debounce timer(D-42:refreshOnly 後只剩這個)
+  // D-37 / D-43 自動重繪的狀態(全走 ref,不觸發 render)
+  const lastInputAtRef = React.useRef(0);
   const autoRedrawTimerRef = React.useRef<number | null>(null);
+  const lastAutoRedrawAtRef = React.useRef(0);
+  const autoRedrawSuppressUntilRef = React.useRef(0);
   // D-41 flight recorder:attach 起全程錄 PTY 輸出 chunk(保留切割邊界)+
   // xterm resize 時點,F5 蒐證發現 grid 分岔時整包 dump → 離線重放鎖分岔 op
   const recordChunksRef = React.useRef<RecChunk[]>([]);
@@ -293,9 +305,10 @@ export function SessionPanel({ host, target, onBack }: Props) {
   }, [mode, host.id, targetId]);
 
   // D-34:F5 / 重繪鈕 = 手動強制重繪。行頭殘字(tmux 與 xterm 字寬算法在部分
-  // 字元上不一致,tmux 絕對定位補畫時蓋不到舊字)目前無法根治 —— 寬度表跟各
-  // host 的 tmux 版本綁定。owner 觀察「resize 一下就好」,所以模擬 resize:
-  // 對 tmux 送 rows-1 → rows 兩次 SIGWINCH 逼整屏重畫。
+  // 字元上不一致,tmux 絕對定位補畫時蓋不到舊字)—— 根因見 NOTES D-41(字寬 /
+  // listener race / 漏網 listener)。D-34 原本模擬 resize 逼 tmux 整屏重畫;
+  // D-43 改走 redrawAttach(tmux refresh-client 主路、resize 舞步退路),
+  // F5 / 重繪鈕 / 自動重繪共用。inflight 守門避免疊發。
   const redrawInflightRef = React.useRef(false);
   const forceRedraw = React.useCallback(async () => {
     const aid = attachIdRef.current;
@@ -303,26 +316,12 @@ export function SessionPanel({ host, target, onBack }: Props) {
     if (!aid || !term || redrawInflightRef.current) return;
     redrawInflightRef.current = true;
     try {
-      const { cols, rows } = term;
-      await api.resizeSession(aid, cols, rows > 1 ? rows - 1 : rows + 1);
-      await api.resizeSession(aid, cols, rows);
-      // 順手叫 renderer 把現有 buffer 全行重畫(防純 render 層殘影)
-      term.refresh(0, term.rows - 1);
+      await redrawAttach(aid, term);
     } catch (err) {
       console.warn("[SessionPanel] forceRedraw failed", err);
     } finally {
       redrawInflightRef.current = false;
     }
-  }, []);
-
-  // D-42:自動重繪只重畫 render 層(D-34 = DOM renderer stale glyph,已實機確認
-  // Shift+F5 的純 refresh 能清;Phase 0.5/0.6 確認 buffer 忠實)。純 client 端、
-  // 不碰 tmux、零 SSH、零 D-31 風險、畫面不抖。F5 / 重繪鈕維持 forceRedraw 完整版
-  // 治 buffer 層(VS16 emoji)。
-  const refreshOnly = React.useCallback(() => {
-    const term = xtermRef.current;
-    if (!term) return;
-    term.refresh(0, term.rows - 1);
   }, []);
 
   // D-41 蒐證:按 F5 的瞬間(殘字還在畫面上)先把 xterm grid 跟 tmux 可見畫面
@@ -394,13 +393,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
     await forceRedraw();
   }, [host.id, forceRedraw]);
 
-  // F5 → 蒐證 + forceRedraw。capture phase 攔:preventDefault 防 webview 整頁
-  // reload,stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
-  //
-  // D-41 renderer 探針(殘字可見但 grid diff = 0 時用,分辨殘字在顯示層的哪一層):
-  // - Shift+F5:純 term.refresh(全行重畫)。消 → xterm DOM renderer 漏標 dirty。
-  // - Ctrl+F5:compositing 踢一腳(容器 transform 閃一下逼 WebView2 重合成,
-  //   不動 buffer 不動 tmux)。refresh 無效但這個消 → WebView2 合成層殘影。
+  // F5 → 立即整屏重畫(D-43:不再先蒐證 —— capture round-trip + dump 序列化
+  // 會讓 F5 卡住)。capture phase 攔:preventDefault 防 webview 整頁 reload,
+  // stopPropagation 防 xterm 把 F5(\x1b[15~)送進 PTY。
+  // - Shift+F5:D-41 蒐證版(grid diff + flight recorder dump)再重畫,要採證才按
+  // - Alt+F5:暫停 / 恢復自動重繪(讓殘字留在畫面上慢慢驗)
   React.useEffect(() => {
     if (mode !== "attach" || !attachId) return;
     const onKey = (e: KeyboardEvent) => {
@@ -412,33 +409,19 @@ export function SessionPanel({ host, target, onBack }: Props) {
         const paused = autoRedrawPausedRef.current;
         console.info(`[D-41] Alt+F5:自動重繪${paused ? "暫停" : "恢復"}`);
         toast.message(
-          `D-37 自動重繪:${paused ? "已暫停(殘字會留在畫面上)" : "已恢復"}`,
+          `自動重繪:${paused ? "已暫停(殘字會留在畫面上)" : "已恢復"}`,
         );
         return;
       }
       if (e.shiftKey) {
-        const t = xtermRef.current;
-        t?.refresh(0, t.rows - 1);
-        console.info("[D-41] Shift+F5:refresh-only(DOM renderer dirty 探針)");
+        void diagnoseThenRedraw();
         return;
       }
-      if (e.ctrlKey) {
-        const el = containerRef.current;
-        if (el) {
-          el.style.transform = "translateZ(0) scale(0.999)";
-          void el.offsetHeight; // 強制 reflow,確保 transform 真的上到合成層
-          window.requestAnimationFrame(() => {
-            el.style.transform = "";
-          });
-        }
-        console.info("[D-41] Ctrl+F5:compositing nudge(WebView2 合成層探針)");
-        return;
-      }
-      void diagnoseThenRedraw();
+      void forceRedraw();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [mode, attachId, diagnoseThenRedraw]);
+  }, [mode, attachId, diagnoseThenRedraw, forceRedraw]);
 
   // Attach 模式 — tmux target 走 attachSession;shell target 走 attachShell
   React.useEffect(() => {
@@ -454,11 +437,10 @@ export function SessionPanel({ host, target, onBack }: Props) {
     let resizeDisp: IDisposable | undefined; // D-41 flight recorder 的 resize 記錄
     let cancelled = false;
 
-    // D-37 + D-42:自動重繪(輸出停一拍後清殘字)。D-34 殘字是 render 層 →
-    // 只要 refreshOnly(純重畫、不 resize、不碰 tmux、零回傳輸出)。因為沒有
-    // 自迴圈也不撞輸入,舊的 IDLE / SUPPRESS / COOLDOWN 都收掉,只留 SETTLE
-    // debounce。Alt+F5 暫停探針(autoRedrawPausedRef)保留。F5 = forceRedraw
-    // 完整版仍治 buffer 層(VS16 emoji)。
+    // D-37 / D-43:自動重繪(輸出停一拍後整屏重畫清殘字)。走 forceRedraw =
+    // tmux refresh-client(不 SIGWINCH、不驚動 app)。保護:距最後一次鍵盤輸入
+    // < IDLE 或距上次重畫 < COOLDOWN → 400ms 後再試;重畫自己引發的整屏 echo 在
+    // SUPPRESS 內直接放掉(防自迴圈,不重排 —— 真有新內容時輸出會再進來重排)。
     const scheduleAutoRedraw = () => {
       if (autoRedrawTimerRef.current !== null) {
         window.clearTimeout(autoRedrawTimerRef.current);
@@ -466,10 +448,21 @@ export function SessionPanel({ host, target, onBack }: Props) {
       autoRedrawTimerRef.current = window.setTimeout(() => {
         autoRedrawTimerRef.current = null;
         if (autoRedrawPausedRef.current) return; // D-41 探針:Alt+F5 暫停中
+        const now = Date.now();
+        if (now < autoRedrawSuppressUntilRef.current) return;
+        if (
+          now - lastInputAtRef.current < REDRAW_INPUT_IDLE_MS ||
+          now - lastAutoRedrawAtRef.current < REDRAW_COOLDOWN_MS
+        ) {
+          scheduleAutoRedraw();
+          return;
+        }
         const t = xtermRef.current;
         if (!attachIdRef.current || !t) return;
         if (t.buffer.active.type !== "alternate") return;
-        refreshOnly();
+        lastAutoRedrawAtRef.current = now;
+        autoRedrawSuppressUntilRef.current = now + REDRAW_SUPPRESS_MS;
+        void forceRedraw();
       }, REDRAW_OUTPUT_SETTLE_MS);
     };
 
@@ -491,10 +484,15 @@ export function SessionPanel({ host, target, onBack }: Props) {
         } catch {
           // container 還沒 layout 完;退回預設 80x24,resize 之後 tmux 會補
         }
-        // D-41 b+:tmux target 套用該 host 實測字寬表(有快取才切,沒快取
-        // 背景 probe 下次生效);shell 直連沒有 tmux 中間人,切回預設表
+        // D-41 b+ / D-43:tmux target 套用該 host 實測字寬表。有快取立刻切;
+        // 沒快取背景 probe,量完「當場」套用 + 整屏重畫一次(第一次 attach 也
+        // 對齊,不必等下次)。shell 直連沒有 tmux 中間人,切回預設表。
         if (target.kind === "tmux") {
-          applyHostWidths(term, host.id);
+          if (!applyHostWidths(term, host.id)) {
+            void probeAndApply(term, host.id).then((applied) => {
+              if (applied && !cancelled) void forceRedraw();
+            });
+          }
         } else {
           resetDefaultProvider(term);
         }
@@ -598,6 +596,14 @@ export function SessionPanel({ host, target, onBack }: Props) {
         attachIdRef.current = aid;
 
         const disp = term.onData((data) => {
+          // D-37:滑鼠 report(D-33 滾輪轉發)跟 focus report 不算「使用者在
+          // 打字」,不然捲一下滾輪就把自動重繪擋掉 IDLE 這麼久
+          const isPointerReport =
+            data.startsWith("\x1b[<") ||
+            data.startsWith("\x1b[M") ||
+            data === "\x1b[I" ||
+            data === "\x1b[O";
+          if (!isPointerReport) lastInputAtRef.current = Date.now();
           if (aid) {
             api.writeToSession(aid, data).catch((err) => {
               console.warn("[SessionPanel] writeToSession failed", err);
@@ -641,7 +647,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
       attachIdRef.current = null;
       scrollPendingRef.current = 0;
     };
-  }, [mode, host.id, targetId, refreshOnly]);
+  }, [mode, host.id, targetId, forceRedraw]);
 
   const handleRefresh = async () => {
     if (target.kind !== "tmux") return;
@@ -822,7 +828,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => void diagnoseThenRedraw()}
+              onClick={() => void forceRedraw()}
               title="強制重繪(F5)— 畫面出現行頭殘字時按這個"
             >
               <RefreshCw className="h-4 w-4" />

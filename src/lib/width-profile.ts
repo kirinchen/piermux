@@ -197,50 +197,69 @@ export function parseProbeOutput(raw: string): WidthProfile | null {
   return { tmuxVersion, widths, probedAt: new Date().toISOString() };
 }
 
-const inflight = new Set<string>();
+const inflight = new Map<string, Promise<WidthProfile | null>>();
 
-/// 背景 probe + 存快取。不 await —— 結果供「下一次」attach 用。
-export function refreshProfileInBackground(hostId: string): void {
-  if (inflight.has(hostId)) return;
-  inflight.add(hostId);
-  api
+/// probe + 存快取。同 host 同時只跑一條(回同一個 promise)。
+export function probeProfile(hostId: string): Promise<WidthProfile | null> {
+  const running = inflight.get(hostId);
+  if (running) return running;
+  const p = api
     .probeHostWidths(hostId, PROBE_CHARS)
     .then((raw) => {
-      const p = parseProbeOutput(raw);
-      if (!p) return;
+      const prof = parseProbeOutput(raw);
+      if (!prof) return null;
       try {
-        localStorage.setItem(LS_PREFIX + hostId, JSON.stringify(p));
+        localStorage.setItem(LS_PREFIX + hostId, JSON.stringify(prof));
       } catch {
         // localStorage 失敗就算了,下次 attach 再 probe
       }
       console.info(
-        `[D-41] 字寬表已快取:tmux=${p.tmuxVersion},${Object.keys(p.widths).length} 字(下次 attach 生效)`,
+        `[D-41] 字寬表已快取:tmux=${prof.tmuxVersion},${Object.keys(prof.widths).length} 字`,
       );
+      return prof;
     })
-    .catch((err) => console.warn("[width-profile] probe failed", err))
+    .catch((err) => {
+      console.warn("[width-profile] probe failed", err);
+      return null;
+    })
     .finally(() => inflight.delete(hostId));
+  inflight.set(hostId, p);
+  return p;
 }
 
-/// attach 前呼叫(只限 tmux target)。有快取 → 註冊 host provider 並切換;
-/// 沒快取 → 維持預設 provider,背景 probe。shell target 請改呼叫
-/// resetDefaultProvider(直連沒有 tmux 中間人,host 表不適用)。
-export function applyHostWidths(term: Terminal, hostId: string): void {
-  const prof = getCachedProfile(hostId);
-  if (!prof) {
-    refreshProfileInBackground(hostId);
-    resetDefaultProvider(term);
-    return;
-  }
+function applyProfile(term: Terminal, hostId: string, prof: WidthProfile): boolean {
   try {
     const version = buildHostProvider(term, hostId, prof.widths);
     if (term.unicode.activeVersion !== version) {
       term.unicode.activeVersion = version;
       console.info(`[D-41] 套用 host 字寬表:${version}(tmux=${prof.tmuxVersion})`);
     }
+    return true;
   } catch (err) {
     console.warn("[width-profile] 套用失敗,維持預設 provider", err);
     resetDefaultProvider(term);
+    return false;
   }
+}
+
+/// attach 前呼叫(只限 tmux target)。有快取 → 註冊 host provider 並切換,回 true;
+/// 沒快取 → 維持預設 provider、回 false,呼叫端接著 probeAndApply。
+/// shell target 請改呼叫 resetDefaultProvider(直連沒有 tmux 中間人,host 表不適用)。
+export function applyHostWidths(term: Terminal, hostId: string): boolean {
+  const prof = getCachedProfile(hostId);
+  if (!prof) {
+    resetDefaultProvider(term);
+    return false;
+  }
+  return applyProfile(term, hostId, prof);
+}
+
+/// D-43:沒快取時 —— 背景 probe,量完「當場」套用到這顆 term(不再等下次
+/// attach)。回 true 表示已切換,呼叫端接著整屏重畫一次讓既有畫面按新表重排。
+export async function probeAndApply(term: Terminal, hostId: string): Promise<boolean> {
+  const prof = await probeProfile(hostId);
+  if (!prof) return false;
+  return applyProfile(term, hostId, prof);
 }
 
 export function resetDefaultProvider(term: Terminal): void {

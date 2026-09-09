@@ -52,6 +52,29 @@ struct AttachHandle {
     // (socket, tmux session name)(scroll_session 組 copy-mode target 用,D-39)。
     // shell target 沒 tmux → None,scroll 變 no-op。
     target: Option<(String, String)>,
+    // D-43:這個 attach client 在 server 端的 tty(/dev/pts/N)。attach 指令先
+    // `printf OSC 7777` 把 tty 印進流,reader 抓到就填。refresh_attach 用它對
+    // tmux 下 `refresh-client -t <tty>`:只重送 tmux 自己的畫面、不 SIGWINCH、
+    // 不驚動 app —— 取代 resize 舞步當清殘字的主路。
+    tty: Arc<std::sync::Mutex<Option<String>>>,
+}
+
+/// D-43:attach 流開頭的 tty 標記 `ESC ] 7777 ; /dev/pts/N BEL`。
+const TTY_MARKER_PREFIX: &str = "\x1b]7777;";
+/// 標記只會出現在流的最前面;超過這個量還沒看到就放棄,別一直掃
+const TTY_SCAN_LIMIT: usize = 4096;
+
+fn extract_tty_marker(buf: &str) -> Option<String> {
+    let start = buf.find(TTY_MARKER_PREFIX)? + TTY_MARKER_PREFIX.len();
+    let rest = &buf[start..];
+    let end = rest.find(['\x07', '\x1b'])?;
+    let tty = &rest[..end];
+    let valid = tty.starts_with("/dev/")
+        && tty.len() <= 64
+        && tty
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '.' | '-'));
+    valid.then(|| tty.to_string())
 }
 
 impl Drop for AttachHandle {
@@ -114,12 +137,17 @@ async fn finalize_attach(
 ) -> String {
     let app_clone = app.clone();
     let attach_id_clone = attach_id.clone();
+    let tty_slot: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
+    let tty_slot_reader = tty_slot.clone();
+    let has_tmux = target.is_some();
 
     let reader = tokio::spawn(async move {
         // PTY raw bytes 是 stream — 多 byte UTF-8 字元(如中文)會跨 packet
         // 邊界切開。直接 from_utf8_lossy 會把不完整的尾段轉成 �,中文
         // attach 輸出會壞掉。保留 tail buffer 把不完整序列留到下個 packet 合併。
         let mut utf8_tail: Vec<u8> = Vec::new();
+        // D-43:流開頭掃 tty 標記(可能跨 packet,所以累積到找到或超量)
+        let mut tty_scan: Option<String> = has_tmux.then(String::new);
         loop {
             match sess_rx.recv().await {
                 Ok(Some(event)) => match event {
@@ -127,6 +155,17 @@ async fn finalize_attach(
                         let chunk = drain_utf8(&mut utf8_tail, &bytes);
                         if chunk.is_empty() {
                             continue; // 整段都是 incomplete tail,等下個 packet
+                        }
+                        if let Some(scan) = tty_scan.as_mut() {
+                            scan.push_str(&chunk);
+                            if let Some(tty) = extract_tty_marker(scan) {
+                                *tty_slot_reader.lock().unwrap_or_else(|e| e.into_inner()) =
+                                    Some(tty);
+                                tty_scan = None;
+                            } else if scan.len() > TTY_SCAN_LIMIT {
+                                eprintln!("[attach {attach_id_clone}] tty 標記沒出現,refresh-client 不可用");
+                                tty_scan = None;
+                            }
                         }
                         let evt = format!("attach-output-{attach_id_clone}");
                         if let Err(e) = app_clone.emit(&evt, &chunk) {
@@ -159,6 +198,7 @@ async fn finalize_attach(
         session,
         reader: Some(reader),
         target,
+        tty: tty_slot,
     };
 
     let mut map = registry.inner.lock().await;
@@ -198,11 +238,15 @@ pub async fn attach_session(
 
     let (session, sess_rx) = open_pty_channel(&ssh, cols, rows).await?;
 
-    let cmd = format!(
-        "{} attach -t {}",
+    // D-43:先把自己的 tty 用 OSC 7777 印進流(xterm 對未註冊 OSC 靜默忽略),
+    // 再 exec tmux attach。包一層 `sh -c` 讓 `$(tty)` 不受 login shell 是
+    // fish / csh 影響;整段 inner script 用 shell_quote 交給外層 shell。
+    let inner = format!(
+        "printf '\\033]7777;%s\\007' \"$(tty)\"; exec {} attach -t {}",
         sessions::tmux_with_socket(&socket),
         shell_quote(&session_name)
     );
+    let cmd = format!("sh -c {}", shell_quote(&inner));
     session
         .exec(cmd.as_bytes())
         .map_err(|e| format!("exec request: {e}"))?
@@ -316,6 +360,45 @@ pub async fn scroll_session(
         .await
         .map(|_| ())
         .map_err(|e| format!("scroll exec: {e}"))
+}
+
+/// D-43:清殘字主路 —— 對這個 attach client 下 `tmux refresh-client -t <tty>`,
+/// tmux 把整個 client 畫面重送一次(等同 `prefix r`)。只重送 tmux 自己的 grid、
+/// 不 SIGWINCH、不驚動 pane 裡的 app,所以不會撞輸入(D-31),也不用 2 次
+/// window_change。在 attach 的同一條 SSH connection 上開 exec channel 跑。
+///
+/// shell target(無 tmux)或 tty 標記沒抓到 → Err,前端退回 resize 舞步。
+#[tauri::command]
+pub async fn refresh_attach(
+    registry: State<'_, AttachRegistry>,
+    session_id: String,
+) -> Result<(), String> {
+    let (ssh, socket, tty) = {
+        let map = registry.inner.lock().await;
+        let handle = map
+            .get(&session_id)
+            .ok_or_else(|| format!("attach session not found: {session_id}"))?;
+        let socket = match &handle.target {
+            None => return Err("shell target 沒有 tmux client".into()),
+            Some((sock, _)) => sock.clone(),
+        };
+        let tty = handle
+            .tty
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .ok_or_else(|| "attach client tty 未知".to_string())?;
+        (handle.ssh.clone(), socket, tty)
+    };
+    let cmd = format!(
+        "{} refresh-client -t {}",
+        sessions::tmux_with_socket(&socket),
+        shell_quote(&tty)
+    );
+    ssh.exec(&cmd)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("refresh-client exec: {e}"))
 }
 
 #[tauri::command]
