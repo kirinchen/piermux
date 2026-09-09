@@ -28,6 +28,11 @@ type Mode = "capture" | "attach";
 // 手機寬度有限,attach 要塞得下 tmux 的 cols
 const ATTACH_FONT_DELTA = -1;
 
+// D-42:attach 輸出停一拍後重畫 render 層清殘字(對齊 desktop)。D-34 殘字是
+// DOM renderer 的 stale glyph,term.refresh 重畫即可 —— 純 client 端、不碰 tmux、
+// 零輸入風險、無自迴圈。詳見 doc/note/herdr-control-mode-study.md 題 6。
+const REDRAW_OUTPUT_SETTLE_MS = 400;
+
 type Props = {
   hostId: string;
   target: AndroidTarget;
@@ -338,6 +343,7 @@ function AttachView({
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const onDataRef = useRef<IDisposable | null>(null);
+  const autoRedrawTimerRef = useRef<number | null>(null); // D-42 自動重繪 debounce
   const [attachId, setAttachId] = useState<string | null>(null);
   const [ctrlSticky, setCtrlSticky] = useState(false);
   const [altSticky, setAltSticky] = useState(false);
@@ -498,6 +504,20 @@ function AttachView({
     let unlistenClosed: UnlistenFn | undefined;
     let cancelled = false;
 
+    // D-42:輸出停 SETTLE 後重畫 render 層清殘字(只 refresh、不 resize、不碰 tmux)
+    const scheduleAutoRedraw = () => {
+      if (autoRedrawTimerRef.current !== null) {
+        window.clearTimeout(autoRedrawTimerRef.current);
+      }
+      autoRedrawTimerRef.current = window.setTimeout(() => {
+        autoRedrawTimerRef.current = null;
+        const t = xtermRef.current;
+        if (cancelled || !t) return;
+        if (t.buffer.active.type !== "alternate") return;
+        t.refresh(0, t.rows - 1);
+      }, REDRAW_OUTPUT_SETTLE_MS);
+    };
+
     const start = async () => {
       try {
         // D-32:attach 前先等佈局定案(軟鍵盤 / portrait 容器)再 fit,量到最終
@@ -537,6 +557,7 @@ function AttachView({
           // 不再 strip alt-screen — 讓 xterm 正常用 alternate buffer,tmux 絕對
           // 游標定位才對得上(舊 Bug 2/3:strip 後 normal buffer 座標 desync)。
           t.write(e.payload);
+          scheduleAutoRedraw(); // D-42:輸出停一拍後重畫 render 層清殘字
         });
         unlistenClosed = await listen(`attach-closed-${aid0}`, () => {
           if (cancelled) return;
@@ -592,6 +613,10 @@ function AttachView({
 
     return () => {
       cancelled = true;
+      if (autoRedrawTimerRef.current !== null) {
+        window.clearTimeout(autoRedrawTimerRef.current);
+        autoRedrawTimerRef.current = null;
+      }
       onDataRef.current?.dispose();
       onDataRef.current = null;
       unlistenOutput?.();

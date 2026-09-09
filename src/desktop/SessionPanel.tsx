@@ -45,13 +45,12 @@ type Props = {
 
 type Mode = "capture" | "attach";
 
-// D-37 自動重繪參數:attach 輸出停 SETTLE 後檢查一次;距最後一次「鍵盤」輸入
-// 需 ≥ IDLE 才發動(不撞輸入 —— D-31 紅線);重繪自己引發的整屏 echo 在
-// SUPPRESS 內不再排程(防自迴圈);兩次自動重繪至少隔 COOLDOWN(限流)。
+// D-37 + D-42 自動重繪:attach 輸出停 SETTLE 後重畫 render 層(refreshOnly)。
+// D-34 殘字是 DOM renderer 的 stale glyph(Phase 0.5/0.6 確認 buffer 忠實),
+// 只要 term.refresh 重畫就好。refreshOnly 純 client 端、不碰 tmux、零回傳輸出
+// → 無自迴圈、不撞輸入,原本為 resize 舞步設的 IDLE / SUPPRESS / COOLDOWN 保護
+// 全收掉(D-42),只留 SETTLE debounce 把連續輸出合併成一次重畫。
 const REDRAW_OUTPUT_SETTLE_MS = 400;
-const REDRAW_INPUT_IDLE_MS = 2000;
-const REDRAW_SUPPRESS_MS = 1500;
-const REDRAW_COOLDOWN_MS = 3000;
 // D-41 蒐證:F5 前的 grid diff capture 逾時 —— 超過就跳過蒐證直接重繪
 const D41_CAPTURE_TIMEOUT_MS = 1500;
 // D-41 flight recorder 上限(chars)。超過就整段放棄 —— ring buffer 沒辦法
@@ -85,11 +84,8 @@ export function SessionPanel({ host, target, onBack }: Props) {
   // 正 = 往回捲),完成後若還有 pending 再送一次 → 最多一個在途 + 一個排隊。
   const scrollInflightRef = React.useRef(false);
   const scrollPendingRef = React.useRef(0);
-  // D-37 自動重繪的狀態(全走 ref,不觸發 render)
-  const lastInputAtRef = React.useRef(0);
+  // D-37 自動重繪的 debounce timer(D-42:refreshOnly 後只剩這個)
   const autoRedrawTimerRef = React.useRef<number | null>(null);
-  const lastAutoRedrawAtRef = React.useRef(0);
-  const autoRedrawSuppressUntilRef = React.useRef(0);
   // D-41 flight recorder:attach 起全程錄 PTY 輸出 chunk(保留切割邊界)+
   // xterm resize 時點,F5 蒐證發現 grid 分岔時整包 dump → 離線重放鎖分岔 op
   const recordChunksRef = React.useRef<RecChunk[]>([]);
@@ -319,6 +315,16 @@ export function SessionPanel({ host, target, onBack }: Props) {
     }
   }, []);
 
+  // D-42:自動重繪只重畫 render 層(D-34 = DOM renderer stale glyph,已實機確認
+  // Shift+F5 的純 refresh 能清;Phase 0.5/0.6 確認 buffer 忠實)。純 client 端、
+  // 不碰 tmux、零 SSH、零 D-31 風險、畫面不抖。F5 / 重繪鈕維持 forceRedraw 完整版
+  // 治 buffer 層(VS16 emoji)。
+  const refreshOnly = React.useCallback(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    term.refresh(0, term.rows - 1);
+  }, []);
+
   // D-41 蒐證:按 F5 的瞬間(殘字還在畫面上)先把 xterm grid 跟 tmux 可見畫面
   // diff 一次再重繪 —— diff 非空 = 殘字真的在 xterm grid 裡(tmux↔xterm 分岔,
   // 行 / 欄都印在 console);diff 空但畫面看得到殘字 = renderer 層殘像,修法
@@ -448,13 +454,11 @@ export function SessionPanel({ host, target, onBack }: Props) {
     let resizeDisp: IDisposable | undefined; // D-41 flight recorder 的 resize 記錄
     let cancelled = false;
 
-    // D-37:自動重繪(自動版 F5)。行頭殘字(D-34 根因:tmux×xterm 字寬不合)
-    // 每次畫面更新 / 滾動後都可能再出現,手動 F5 只是治標 —— owner 已證實
-    // 「resize 必治」。改成輸出停 REDRAW_OUTPUT_SETTLE_MS 後自動跑一次 F5 的
-    // resize 重繪。輸入保護(D-31 教訓:自動 resize 撞輸入會壞輸入賣點):
-    // 距最後一次鍵盤輸入 < IDLE 或距上次重繪 < COOLDOWN → 400ms 後再試;
-    // 重繪自己引發的整屏 echo 在 SUPPRESS 內直接放掉(防自迴圈,不重排 ——
-    // 真有新內容時輸出會再進來重新排程)。
+    // D-37 + D-42:自動重繪(輸出停一拍後清殘字)。D-34 殘字是 render 層 →
+    // 只要 refreshOnly(純重畫、不 resize、不碰 tmux、零回傳輸出)。因為沒有
+    // 自迴圈也不撞輸入,舊的 IDLE / SUPPRESS / COOLDOWN 都收掉,只留 SETTLE
+    // debounce。Alt+F5 暫停探針(autoRedrawPausedRef)保留。F5 = forceRedraw
+    // 完整版仍治 buffer 層(VS16 emoji)。
     const scheduleAutoRedraw = () => {
       if (autoRedrawTimerRef.current !== null) {
         window.clearTimeout(autoRedrawTimerRef.current);
@@ -462,21 +466,10 @@ export function SessionPanel({ host, target, onBack }: Props) {
       autoRedrawTimerRef.current = window.setTimeout(() => {
         autoRedrawTimerRef.current = null;
         if (autoRedrawPausedRef.current) return; // D-41 探針:Alt+F5 暫停中
-        const now = Date.now();
-        if (now < autoRedrawSuppressUntilRef.current) return;
-        if (
-          now - lastInputAtRef.current < REDRAW_INPUT_IDLE_MS ||
-          now - lastAutoRedrawAtRef.current < REDRAW_COOLDOWN_MS
-        ) {
-          scheduleAutoRedraw();
-          return;
-        }
         const t = xtermRef.current;
         if (!attachIdRef.current || !t) return;
         if (t.buffer.active.type !== "alternate") return;
-        lastAutoRedrawAtRef.current = now;
-        autoRedrawSuppressUntilRef.current = now + REDRAW_SUPPRESS_MS;
-        void forceRedraw();
+        refreshOnly();
       }, REDRAW_OUTPUT_SETTLE_MS);
     };
 
@@ -605,14 +598,6 @@ export function SessionPanel({ host, target, onBack }: Props) {
         attachIdRef.current = aid;
 
         const disp = term.onData((data) => {
-          // D-37:滑鼠 report(D-33 滾輪轉發)跟 focus report 不算「使用者在
-          // 打字」,不然捲一下滾輪就把自動重繪擋掉 IDLE 這麼久
-          const isPointerReport =
-            data.startsWith("\x1b[<") ||
-            data.startsWith("\x1b[M") ||
-            data === "\x1b[I" ||
-            data === "\x1b[O";
-          if (!isPointerReport) lastInputAtRef.current = Date.now();
           if (aid) {
             api.writeToSession(aid, data).catch((err) => {
               console.warn("[SessionPanel] writeToSession failed", err);
@@ -656,7 +641,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
       attachIdRef.current = null;
       scrollPendingRef.current = 0;
     };
-  }, [mode, host.id, targetId, forceRedraw]);
+  }, [mode, host.id, targetId, refreshOnly]);
 
   const handleRefresh = async () => {
     if (target.kind !== "tmux") return;

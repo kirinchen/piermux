@@ -177,6 +177,12 @@
   - **在替代方案實機驗過以前,D-34 的 F5 與 D-37 的自動重繪保留不動。**(Phase 0 之後更該保留 —— 根因還沒抓到)
   - spike 腳本全在 `/tmp/pmux-cc-spike/`(control mode)與 `/tmp/pmux-w0/`(Phase 0 字寬),**不進 repo**;實驗走拋棄式 socket `-L pmspike` / `-L pmprobe` / `-L pmwidth`(session 名 `spike-width-probe`),**沒有碰任何既有 session**,做完 `kill-server` + 刪 socket 檔。
 
+- D-42(2026-09-09,另一 session 平行進行,與 D-41 收斂到同結論):**D-37 自動重繪改「只 refresh 不 resize」(refreshOnly)+ Android 同步 + 收掉 resize 時代的保護**。
+  - **獨立驗證路線**:headless xterm 位元組流重放(Phase 0.5/0.6,scratchpad,不進 repo)確認純文字情境 tmux bytes → buffer 全忠實;殘字分兩家族 —— (i) VS16 emoji = buffer 層(= D-41 根因 3 的 per-host 字寬,D-41 b+ 已處理)、(ii) D-34 純文字 = **render 層**(DOM renderer stale glyph)。與 D-41 的 Shift+F5 探針結論一致。
+  - **改動**:新增 `refreshOnly()` = `term.refresh(0,rows-1)`(純 client、不碰 tmux、零 SSH、零 D-31 風險、畫面不抖);**D-37 自動重繪由 forceRedraw 改呼 refreshOnly**(desktop + Android AttachView 都上,Android 本來根本沒自動重繪)。`forceRedraw` 完整版留給 F5 / 重繪鈕治 buffer 層;D-41 的探針鍵(Alt/Shift/Ctrl+F5)、flight recorder、grid-diff、per-host provider 全部保留。
+  - **收尾**:refreshOnly 無自迴圈、不撞輸入 → 拔掉只為 resize 舞步設的 `REDRAW_INPUT_IDLE_MS` / `REDRAW_SUPPRESS_MS` / `REDRAW_COOLDOWN_MS` 與對應 ref(`lastInputAtRef` / `lastAutoRedrawAtRef` / `autoRedrawSuppressUntilRef`)+ onData 的 pointer-report 判斷,只留 SETTLE debounce。
+  - ⚠️ **未測的組合**:refreshOnly 的實機確認是在 D-41 root-cause 修正**之前**的 base 上做的(殘字清掉、不抖)。疊到 D-41 之上(listener race / re-attach / term.reset / b+ provider 都已修)後**尚未合併實測** —— D-41 收工時 owner 還回報「還是不行」。**請在這個合併 build 重 attach 驗幾天**:殘字是否乾淨、refreshOnly 夠不夠(不夠就 F5 兜、回頭看是不是又冒 grid 病)。詳細 byte-replay 研究(題 4-6)留在分支 `d42-backup` 的 herdr 筆記,要時再併入本文。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
