@@ -686,6 +686,20 @@ function AttachView({
       toast.error(`送失敗:${String(err)}`);
     });
   };
+
+  // D-43:「重整」鈕 = desktop 的 F5 / 重繪鈕,手動整屏重畫清殘字(refresh-client 主路)
+  const manualRedraw = async () => {
+    const t = xtermRef.current;
+    if (!attachId || !t || redrawInflightRef.current) return;
+    redrawInflightRef.current = true;
+    try {
+      await redrawAttach(attachId, t);
+    } catch (err) {
+      console.warn("[AttachView] manualRedraw failed", err);
+    } finally {
+      redrawInflightRef.current = false;
+    }
+  };
   // Effect 內 / CTRL sticky handler 經由 ref 拿最新 writeRaw
   useEffect(() => {
     writeRawRef.current = writeRaw;
@@ -710,6 +724,19 @@ function AttachView({
         }}
       >
         <div ref={containerRef} className="absolute inset-0" />
+        {attachId && (
+          <button
+            type="button"
+            title="重整(清殘字)"
+            onClick={(e) => {
+              e.stopPropagation(); // 別順手把焦點 / 軟鍵盤叫出來
+              void manualRedraw();
+            }}
+            className="absolute right-2 top-2 z-10 rounded-md bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 active:bg-zinc-700"
+          >
+            🔄 重整
+          </button>
+        )}
       </div>
 
       <ModifierBar
