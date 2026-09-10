@@ -8,6 +8,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-M2%20code%20complete%2C%20pre--release-orange.svg)](#目前狀態)
 
+![piermux desktop — 左邊跨機 session 樹、右邊 attach 中的 tmux session](doc/screenshot-desktop.png)
+
 ---
 
 ## 為什麼做這個?

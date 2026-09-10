@@ -8,6 +8,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-M2%20code%20complete%2C%20pre--release-orange.svg)](#status)
 
+![piermux desktop — cross-host session tree on the left, attached tmux session on the right](doc/screenshot-desktop.png)
+
 ---
 
 ## Why this exists
