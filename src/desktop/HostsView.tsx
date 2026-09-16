@@ -18,6 +18,11 @@ import { Button } from "@/components/ui/button";
 import { useRefreshAll } from "@/hooks/useCapture";
 import { getVersion } from "@tauri-apps/api/app";
 import type { Host, Session } from "@/lib/types";
+import {
+  loadOverviewMode,
+  saveOverviewMode,
+  type OverviewMode,
+} from "./overview-mode";
 
 const SIDEBAR_KEY = "piermux:sidebarCollapsed";
 
@@ -43,6 +48,13 @@ export function HostsView() {
       // ignore — quota / SecurityError
     }
   }, [sidebarCollapsed]);
+
+  // overview 顯示模式:截圖(mini xterm)vs 狀態(seamount 風格狀態列)
+  const [overviewMode, setOverviewMode] =
+    React.useState<OverviewMode>(loadOverviewMode);
+  React.useEffect(() => {
+    saveOverviewMode(overviewMode);
+  }, [overviewMode]);
 
   const refreshAll = useRefreshAll();
 
@@ -128,6 +140,34 @@ export function HostsView() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-border text-xs">
+            <button
+              type="button"
+              onClick={() => setOverviewMode("screenshot")}
+              className={
+                "px-2.5 py-1 " +
+                (overviewMode === "screenshot"
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50")
+              }
+              title="每個 session 顯示畫面截圖(mini 終端)"
+            >
+              截圖
+            </button>
+            <button
+              type="button"
+              onClick={() => setOverviewMode("status")}
+              className={
+                "border-l border-border px-2.5 py-1 " +
+                (overviewMode === "status"
+                  ? "bg-muted font-medium text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50")
+              }
+              title="每個 session 顯示狀態摘要(🙋等你回覆 / 🏃生成中 / ☑️告一段落)"
+            >
+              狀態
+            </button>
+          </div>
           <Button
             size="sm"
             variant="outline"
@@ -170,6 +210,7 @@ export function HostsView() {
             <HostCaptureGrid
               host={selection.host}
               onSelectSession={(s) => expandSession(selection.host, s)}
+              mode={overviewMode}
             />
           )}
           {selection?.kind === "session" && (
@@ -191,6 +232,7 @@ export function HostsView() {
               hosts={selection.hosts}
               onSelectSession={expandSession}
               onClearAll={clearMulti}
+              mode={overviewMode}
             />
           )}
         </div>

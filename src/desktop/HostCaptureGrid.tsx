@@ -9,17 +9,21 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { CaptureCell } from "./CaptureCell";
+import { StatusCell } from "./StatusCell";
 import { useSessions, useHostStatus } from "@/hooks/useSessions";
 import { useRefreshHost } from "@/hooks/useCapture";
 import type { Host, Session } from "@/lib/types";
+import type { OverviewMode } from "./overview-mode";
 
 type Props = {
   host: Host;
   // 點 cell 上的 [⇱] 進單一視圖
   onSelectSession: (session: Session) => void;
+  // 截圖(mini xterm)或狀態(seamount 風格狀態列)
+  mode: OverviewMode;
 };
 
-export function HostCaptureGrid({ host, onSelectSession }: Props) {
+export function HostCaptureGrid({ host, onSelectSession, mode }: Props) {
   const sessions = useSessions(host.id, true);
   const status = useHostStatus(host.id);
   const refreshHost = useRefreshHost();
@@ -104,10 +108,23 @@ export function HostCaptureGrid({ host, onSelectSession }: Props) {
           </div>
         )}
 
-        {sessions.data && sessions.data.length > 0 && (
+        {sessions.data && sessions.data.length > 0 && mode === "screenshot" && (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
             {sessions.data.map((s) => (
               <CaptureCell
+                key={`${s.socket}:${s.name}`}
+                host={host}
+                session={s}
+                onExpand={() => onSelectSession(s)}
+              />
+            ))}
+          </div>
+        )}
+
+        {sessions.data && sessions.data.length > 0 && mode === "status" && (
+          <div className="flex flex-col gap-1.5">
+            {sessions.data.map((s) => (
+              <StatusCell
                 key={`${s.socket}:${s.name}`}
                 host={host}
                 session={s}

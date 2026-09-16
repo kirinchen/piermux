@@ -13,10 +13,12 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { CaptureCell } from "./CaptureCell";
+import { StatusCell } from "./StatusCell";
 import { useSessions, useHostStatus } from "@/hooks/useSessions";
 import { useRefreshHost } from "@/hooks/useCapture";
 import { api } from "@/lib/tauri";
 import type { Host, Session } from "@/lib/types";
+import type { OverviewMode } from "./overview-mode";
 
 type Props = {
   hosts: Host[];
@@ -24,12 +26,15 @@ type Props = {
   onSelectSession: (host: Host, session: Session) => void;
   // 點右上 "清除選取" 退出 multi 模式
   onClearAll: () => void;
+  // 截圖 vs 狀態
+  mode: OverviewMode;
 };
 
 export function MultiHostCaptureGrid({
   hosts,
   onSelectSession,
   onClearAll,
+  mode,
 }: Props) {
   const handleRefreshAllSelected = async () => {
     try {
@@ -96,6 +101,7 @@ export function MultiHostCaptureGrid({
             key={h.id}
             host={h}
             onSelectSession={(s) => onSelectSession(h, s)}
+            mode={mode}
           />
         ))}
       </main>
@@ -106,9 +112,11 @@ export function MultiHostCaptureGrid({
 function HostSection({
   host,
   onSelectSession,
+  mode,
 }: {
   host: Host;
   onSelectSession: (s: Session) => void;
+  mode: OverviewMode;
 }) {
   const sessions = useSessions(host.id, true);
   const status = useHostStatus(host.id);
@@ -185,10 +193,22 @@ function HostSection({
             這個 host 上沒 tmux session。
           </div>
         )}
-        {sessions.data && sessions.data.length > 0 && (
+        {sessions.data && sessions.data.length > 0 && mode === "screenshot" && (
           <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
             {sessions.data.map((s) => (
               <CaptureCell
+                key={`${s.socket}:${s.name}`}
+                host={host}
+                session={s}
+                onExpand={() => onSelectSession(s)}
+              />
+            ))}
+          </div>
+        )}
+        {sessions.data && sessions.data.length > 0 && mode === "status" && (
+          <div className="flex flex-col gap-1.5">
+            {sessions.data.map((s) => (
+              <StatusCell
                 key={`${s.socket}:${s.name}`}
                 host={host}
                 session={s}
