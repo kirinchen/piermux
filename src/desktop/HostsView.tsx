@@ -16,6 +16,10 @@ import { HostFormDialog } from "./HostFormDialog";
 import { SettingsDialog } from "./SettingsDialog";
 import { Button } from "@/components/ui/button";
 import { useRefreshAll } from "@/hooks/useCapture";
+import { useHostsList } from "@/hooks/useHosts";
+import { useSessions } from "@/hooks/useSessions";
+import { useIncomingDeepLink } from "@/hooks/useDeepLink";
+import { matchHosts } from "@/lib/deep-link";
 import { getVersion } from "@tauri-apps/api/app";
 import type { Host, Session } from "@/lib/types";
 import {
@@ -113,6 +117,72 @@ export function HostsView() {
 
   const clearMulti = () => setSelection(null);
 
+  // ── deep link `piermux://attach`(契約 doc/DEEP_LINK.md)──────────────────
+  // 刻意全部走既有前端流程:解析出來的 host / session 名先對到既有 Host + Session 物件,
+  // 再餵給同一個 setSelection。URL 做不到任何「點畫面做不到的事」,也就沒有後端旁路。
+  const { req: incomingLink, consume: consumeLink } = useIncomingDeepLink();
+  const hostsQuery = useHostsList();
+  // host 已定、還要在該 host 的 session 清單裡找名字
+  const [linkTarget, setLinkTarget] = React.useState<{
+    host: Host;
+    session: string;
+  } | null>(null);
+  // host 對不到(零筆 / 多筆):記住 session 名,等人自己挑一台(契約 §2)
+  const [orphanSession, setOrphanSession] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!incomingLink || !hostsQuery.data) return;
+    const matched = matchHosts(hostsQuery.data, incomingLink.host);
+    consumeLink();
+    if (matched.length === 1) {
+      setOrphanSession(null);
+      setLinkTarget({ host: matched[0], session: incomingLink.session });
+      return;
+    }
+    // 零筆 / 多筆一律交給人:不猜、更不自己建 host(契約 §6)
+    setOrphanSession(incomingLink.session);
+    setSelection(null);
+    toast.error(
+      matched.length === 0
+        ? `deep link:沒有這台 host「${incomingLink.host}」—— 請自己選一台開「${incomingLink.session}」`
+        : `deep link:「${incomingLink.host}」對到 ${matched.length} 台 —— 請自己選一台`,
+    );
+  }, [incomingLink, hostsQuery.data, consumeLink]);
+
+  const linkSessions = useSessions(linkTarget?.host.id ?? "", !!linkTarget);
+  React.useEffect(() => {
+    if (!linkTarget) return;
+    if (linkSessions.isError) {
+      toast.error(
+        `deep link:讀不到 ${linkTarget.host.display_name} 的 session 清單`,
+      );
+      setSelection({ kind: "host", host: linkTarget.host });
+      setLinkTarget(null);
+      return;
+    }
+    if (!linkSessions.data) return; // 還在載
+    const hit = linkSessions.data.find((s) => s.name === linkTarget.session);
+    if (hit) {
+      setSelection({ kind: "session", host: linkTarget.host, session: hit });
+    } else {
+      // 找不到就停在該 host 的清單讓人挑。**絕不 new-session**(契約 §3)
+      toast.error(
+        `deep link:${linkTarget.host.display_name} 上沒有 session「${linkTarget.session}」`,
+      );
+      setSelection({ kind: "host", host: linkTarget.host });
+    }
+    setLinkTarget(null);
+  }, [linkTarget, linkSessions.data, linkSessions.isError]);
+
+  // 選 host 時如果還帶著一個 deep link 的 session 名,就順勢在那台上找它
+  const handleSelect = (sel: Selection) => {
+    if (orphanSession && sel?.kind === "host") {
+      setLinkTarget({ host: sel.host, session: orphanSession });
+      setOrphanSession(null);
+    }
+    setSelection(sel);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-border px-3 py-2">
@@ -194,11 +264,29 @@ export function HostsView() {
         </div>
       </header>
 
+      {orphanSession && (
+        // deep link 帶著 session 名進來但 host 對不到 —— 契約 §2:帶著名字讓人挑一台
+        <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/50 px-3 py-1.5 text-xs">
+          <span>
+            deep link 要開 session{" "}
+            <span className="font-semibold">{orphanSession}</span> —— 選一台
+            host,piermux 會在那台上找它
+          </span>
+          <button
+            type="button"
+            onClick={() => setOrphanSession(null)}
+            className="rounded px-2 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            取消
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
         {!sidebarCollapsed && (
           <HostTree
             selection={selection}
-            onSelect={setSelection}
+            onSelect={handleSelect}
             onAdd={openAdd}
             onEdit={openEdit}
             onToggleMulti={toggleMulti}

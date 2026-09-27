@@ -74,6 +74,12 @@ Download `.msi` or `.exe` from the [latest release](https://github.com/kirinchen
 
 > ⚠️ **Windows SmartScreen warning** on first launch — the binary is not code-signed. Click "More info" → "Run anyway". A code-signing cert may be considered for M3.
 
+> 🔗 **`piermux://` deep links need the installer.** The `.msi` / `-setup.exe` writes the URL-scheme registry keys, so links like
+> `piermux://attach?host=100.114.93.81&session=kelp` open the app and attach. If you run an unpacked build instead, nothing
+> registers the scheme and such links do nothing — register it by hand (`HKCU\Software\Classes\piermux`, default value
+> `URL:piermux`, a `URL Protocol` empty string value, and `shell\open\command` = `"<path>\piermux.exe" "%1"`), or just install
+> from the bundle. The contract is [`doc/DEEP_LINK.md`](doc/DEEP_LINK.md).
+
 ### From source (Desktop)
 
 Requires [Rust](https://rustup.rs/) (MSRV 1.85) + [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/).

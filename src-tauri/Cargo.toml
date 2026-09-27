@@ -1,6 +1,6 @@
 [package]
 name = "piermux"
-version = "0.1.21"
+version = "0.1.22"
 description = "Cross-platform tmux session GUI — quick attach across multiple hosts"
 authors = ["kirin"]
 edition = "2021"
@@ -30,3 +30,12 @@ anyhow = "1.0.102"
 chrono = { version = "0.4.44", features = ["serde"] }
 makiko = "0.2.5"
 tauri-plugin-opener = "2.5.4"
+# piermux:// deep link(契約 doc/DEEP_LINK.md)。desktop 有效;Android 的 intent-filter
+# 在 gen/ 由 Tauri 產,v0.1.22 不支援,見契約 §9。
+tauri-plugin-deep-link = "2"
+
+# single-instance 只有桌面有意義(mobile 沒有第二個 process),且無 mobile 版 ——
+# 放 target 區塊,Android build 不會碰到它。`deep-link` feature 讓第二個 process 收到的
+# URL 轉交 deep-link plugin,熱啟動因此跟冷啟動同一條路。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

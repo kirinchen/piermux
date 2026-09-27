@@ -72,6 +72,13 @@
 
 下載 [Releases](../../releases) 最新版本的 `.msi` 或 `.exe`。
 
+> 🔗 **`piermux://` deep link 要用 installer 裝才有。** registry 的 scheme 是 `.msi` / `-setup.exe` 寫的,
+> 裝完之後 `piermux://attach?host=100.114.93.81&session=kelp` 這種連結才叫得起 piermux 並 attach。
+> 綠色解壓版沒人寫 registry,點了不會有反應 —— 要嘛自己補
+> (`HKCU\Software\Classes\piermux`:預設值 `URL:piermux`、加一個空字串值 `URL Protocol`、
+> `shell\open\command` 設成 `"<路徑>\piermux.exe" "%1"`),要嘛改用 installer。
+> 契約在 [`doc/DEEP_LINK.md`](doc/DEEP_LINK.md)。
+
 ### 從 source 跑(Desktop)
 
 需要 [Rust](https://rustup.rs/)(MSRV 1.85)+ [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/)。

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { AttachRequest } from "./deep-link";
 import type {
   CaptureResult,
   Host,
@@ -120,4 +121,8 @@ export const api = {
       sessionName,
       localPath,
     }),
+  // deep link — 冷啟動時 URL 比視窗早到,Rust 先存著;前端 mount 來取(取走即清空)。
+  // 熱啟動走 `deep-link://attach` 事件,見 src/lib/deep-link.ts。
+  takePendingDeepLink: () =>
+    invoke<AttachRequest | null>("take_pending_deep_link"),
 };

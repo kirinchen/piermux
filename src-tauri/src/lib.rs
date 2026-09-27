@@ -1,6 +1,7 @@
 mod attach;
 mod capture;
 mod commands;
+mod deep_link;
 mod host_keys;
 mod hosts;
 mod messaging;
@@ -13,7 +14,22 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+
+    // single-instance 必須是**第一個** plugin(官方要求):第二個 process 一起來就把
+    // 啟動參數交給第一個然後自己退出,所以它得比其他 plugin 早攔到。
+    // `deep-link` feature 讓它把 URL 轉交 deep-link plugin 的 on_open_url,熱啟動因此
+    // 跟冷啟動走同一條路。desktop only —— mobile 沒有第二個 process 這回事(契約 §9)。
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // URL 由 deep-link plugin 遞給 on_open_url;這裡只負責把視窗叫到前面。
+            deep_link::focus_main_window(app);
+        }));
+    }
+
+    builder
         // tauri-plugin-sql 仍 load,但**不**註冊 migration ——
         // backend 在 setup hook 自己開 sqlx pool + apply schema(NOTES.md D-5)。
         // plugin-sql 留給 M1d 之後 frontend incremental capture_cache update 用。
@@ -26,6 +42,10 @@ pub fn run() {
         // `src/lib/xterm-links.ts` 的 WebLinksAddon handler 呼叫這個 plugin 的
         // openUrl —— 只放行 http/https,capability scope 再擋一層。
         .plugin(tauri_plugin_opener::init())
+        // deep-link:`piermux://attach?host=…&session=…`(契約 doc/DEEP_LINK.md)。
+        // ⚠️ 這**不是** xterm 那條路 —— `src/lib/xterm-links.ts` 仍只放行 http/https,
+        //    終端內容不得誘導 piermux 自我觸發(契約 §6)。
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().expect("resolve app_data_dir");
             // Android secret 後端要知道 app 私有資料夾(desktop 走 keyring,無害)
@@ -37,6 +57,29 @@ pub fn run() {
             app.manage(pool);
             // M1f attach registry(空 HashMap,attach_session 進來才塞)
             app.manage(attach::AttachRegistry::default());
+            // deep link:冷啟動時前端還沒 listen,先存起來等它來取(deep_link.rs)
+            app.manage(deep_link::PendingLink::default());
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                // 開發時 / Linux 沒跑 installer 的情況要自己註冊 scheme;
+                // 正式安裝走 installer 寫 registry,這裡失敗不影響其他功能。
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("[deep-link] register_all failed (installer 會處理): {e}");
+                }
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        deep_link::handle_url(&handle, url.as_str());
+                    }
+                });
+                // 冷啟動:URL 就在啟動參數裡,on_open_url 不會回頭補發
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    for url in urls {
+                        deep_link::handle_url(app.handle(), url.as_str());
+                    }
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +118,8 @@ pub fn run() {
             messaging::send_message,
             // D-40 檔案上傳(本地檔 → remote pane current pwd)
             upload::upload_to_session,
+            // deep link:前端 mount 時取走冷啟動那條 piermux://(doc/DEEP_LINK.md)
+            deep_link::take_pending_deep_link,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
