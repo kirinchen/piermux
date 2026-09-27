@@ -23,6 +23,8 @@ deep link 是外部輸入,任何網頁都能叫瀏覽器打開一條。所以契
   放行 `piermux:` 等於讓遠端 session 印一行字就誘導 piermux 自我觸發 —— 這條不准改
 - 解析失敗一律安靜丟掉,不 crash、不彈噪音
 
+- Windows 驗收(Tide #159)四案例全過;順手修 Android build:`focus_main_window` 的 desktop-only API 包 `cfg(desktop)`,APK 才編得過(Android 仍不支援 deep link)
+
 ## Full Changelog
 
 https://github.com/kirinchen/piermux/compare/v0.1.21...v0.1.22
