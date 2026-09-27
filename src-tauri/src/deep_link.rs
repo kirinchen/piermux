@@ -85,12 +85,19 @@ pub fn handle_url(app: &AppHandle, raw: &str) {
 }
 
 /// 熱啟動要聚焦既有視窗,不開第二個(契約 §5)。
+///
+/// `unminimize` / `show` / `set_focus` 是 Tauri 2 desktop-only API,mobile 的
+/// `WebviewWindow` 沒有這三個方法(Android build 會 E0599)。Android 本來就不支援
+/// deep link(契約 §9),那邊直接 no-op。
 pub fn focus_main_window(app: &AppHandle) {
+    #[cfg(desktop)]
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
+    #[cfg(not(desktop))]
+    let _ = app;
 }
 
 /// 前端 mount 時取走冷啟動暫存的那一條。取走即清空。
