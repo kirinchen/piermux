@@ -4,7 +4,8 @@
 // 不符 → 拒絕連線(可能是 MITM,或 server reinstall 換了 host key)。
 //
 // fingerprint 格式對齊 OpenSSH `ssh-keygen -lf`:`SHA256:<base64-unpadded>`。
-// makiko 的 `Pubkey::fingerprint()` 直接給這格式,DB 存原樣即可。
+// ssh-key crate 的 `PublicKey::fingerprint(Sha256)` Display 直接給這格式(D-47 換
+// russh 前的 makiko 也是同一格式),DB 存原樣即可、舊紀錄照用。
 
 use anyhow::Result;
 use chrono::Utc;

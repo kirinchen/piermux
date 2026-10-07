@@ -81,7 +81,7 @@
 
 ### 從 source 跑(Desktop)
 
-需要 [Rust](https://rustup.rs/)(MSRV 1.85)+ [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/)。
+需要 [Rust](https://rustup.rs/)(MSRV 1.89)+ [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/)。
 
 ```bash
 git clone https://github.com/kirinchen/piermux
@@ -146,7 +146,7 @@ shell 直連(host tree 上的 ⚡ row)走 normal screen,xterm 自己有 5000 行
 ## 技術選型
 
 - **[Tauri 2](https://tauri.app/)**(Rust + WebView)— 跨平台原生 app shell
-- **[makiko](https://crates.io/crates/makiko)** 0.2 — pure Rust SSH client(`russh` 待 ed25519-dalek upstream 修好,見 [`NOTES.md`](NOTES.md) D-6/D-7)
+- **[russh](https://crates.io/crates/russh)** 0.64 — pure Rust SSH client(`ring` crypto 後端)。2026-04 到 2026-10 間因上游 `ed25519-dalek` pre-release 把 `russh` 編壞,暫用 `makiko`;3.0.0 正式版出了就換回,見 [`NOTES.md`](NOTES.md) D-6 / D-7 / D-47
 - **[xterm.js](https://xtermjs.org/)** — terminal 渲染(capture + attach 共用)
 - **React 19** + **TanStack Query** + **Tailwind 4** + 手寫 shadcn-style 元件
 - **SQLite**(`tauri-plugin-sql` + 自開 sqlx pool)— host config + capture cache + host_keys TOFU storage

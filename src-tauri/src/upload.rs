@@ -2,7 +2,7 @@
 //
 // - 目標路徑 = `#{pane_current_path}`(該 session window 0 active pane 的活 cwd)
 //   + 檔名。走剛做好的 socket infra(`tmux -L <socket>`)。
-// - 傳輸走 `ssh::SshSession::upload`(exec `cat > <path>`,makiko 沒 SFTP,D-40)。
+// - 傳輸走 `ssh::SshSession::upload`(exec `cat > <path>` 串流 stdin,不另拉 SFTP,D-40)。
 // - **只支援 tmux target**:shell target(直連 login shell)沒有可查的活 cwd
 //   (登入後 `cd` 我們追蹤不到),前端不給 shell 開上傳。
 // - 同名檔直接覆蓋(對齊「丟到 pwd」的最簡語意,owner 拍板)。

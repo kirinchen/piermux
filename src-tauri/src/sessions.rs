@@ -1,5 +1,5 @@
 // 真實 list_sessions / host_status —— 取代 sessions_mock.rs。
-// 用 makiko exec `tmux list-sessions -F '...'` 拿格式化輸出再 parse。
+// 用 SSH exec `tmux list-sessions -F '...'` 拿格式化輸出再 parse。
 //
 // 也擺 SPEC §6.6 的 kill_session、加 rename_session(SPEC 沒列但 §10 也沒禁,
 // tree view session-level UX 配套)— 兩個都走 one-shot run_command,跟

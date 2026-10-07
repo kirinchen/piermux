@@ -82,7 +82,7 @@ Download `.msi` or `.exe` from the [latest release](https://github.com/kirinchen
 
 ### From source (Desktop)
 
-Requires [Rust](https://rustup.rs/) (MSRV 1.85) + [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/).
+Requires [Rust](https://rustup.rs/) (MSRV 1.89) + [Node.js](https://nodejs.org/) 18+ + [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/).
 
 ```bash
 git clone https://github.com/kirinchen/piermux
@@ -147,7 +147,7 @@ Direct-shell (the `⚡` row under each host) uses xterm's normal screen with 500
 ## Stack
 
 - **[Tauri 2](https://tauri.app/)** (Rust + WebView) — cross-platform native app shell
-- **[makiko](https://crates.io/crates/makiko)** 0.2 — pure Rust SSH client (waiting on ed25519-dalek upstream before switching to `russh`, see [`NOTES.md`](NOTES.md) D-6 / D-7)
+- **[russh](https://crates.io/crates/russh)** 0.64 — pure Rust SSH client (`ring` crypto backend). Ran on `makiko` from 2026-04 to 2026-10 while an upstream `ed25519-dalek` pre-release broke the `russh` build; switched back once 3.0.0 shipped — see [`NOTES.md`](NOTES.md) D-6 / D-7 / D-47
 - **[xterm.js](https://xtermjs.org/)** — terminal rendering (shared by capture + attach)
 - **React 19** + **TanStack Query** + **Tailwind 4** + hand-rolled shadcn-style components
 - **SQLite** (`tauri-plugin-sql` + own sqlx pool) — host config + capture cache + host_keys TOFU storage

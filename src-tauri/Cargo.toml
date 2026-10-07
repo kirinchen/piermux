@@ -4,7 +4,7 @@ version = "0.1.22"
 description = "Cross-platform tmux session GUI — quick attach across multiple hosts"
 authors = ["kirin"]
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/kirinchen/piermux"
 homepage = "https://github.com/kirinchen/piermux"
@@ -28,7 +28,10 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite"] }
 tokio = { version = "1.52.1", features = ["full"] }
 anyhow = "1.0.102"
 chrono = { version = "0.4.44", features = ["serde"] }
-makiko = "0.2.5"
+# SSH client(D-47:換回 SPEC §13 指定的 russh;D-6/D-7 當初因 ed25519-dalek pre-release
+# 編不過暫用 makiko,上游 3.0.0 正式版已修)。crypto 後端選 ring 而非預設 aws-lc-rs:
+# ring 不吃 cmake、Android NDK 交叉編譯路最熟(rustls 生態同款)。
+russh = { version = "0.64.1", default-features = false, features = ["ring", "flate2", "rsa"] }
 tauri-plugin-opener = "2.5.4"
 # piermux:// deep link(契約 doc/DEEP_LINK.md)。desktop 有效;Android 的 intent-filter
 # 在 gen/ 由 Tauri 產,v0.1.22 不支援,見契約 §9。

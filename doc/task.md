@@ -104,7 +104,7 @@ M1g 直接走 SPEC §9.1 結尾段提到的「server output 唯讀區 + 下方�
   ISSUE-009 = B-Snapshot 第一階段。Owner 拍板「之後再做」(2026-05-04)
 - AI-aware modifier bar 第三排(SPEC §3.5.2)
 - Custom `quick_presets` DB 編輯 UI(M1e 先 hard-code seed,DB 編輯放這)
-- **routine: 每月查 ed25519-dalek crates.io 有沒有 ≥ 3.0.0-pre.7 release** — 有的話評估從 makiko 切回 russh(D-7 條件)
+- ~~**routine: 每月查 ed25519-dalek crates.io 有沒有 ≥ 3.0.0-pre.7 release** — 有的話評估從 makiko 切回 russh(D-7 條件)~~ ✓ done(2026-10-07,NOTES D-47:ed25519-dalek 3.0.0 正式版 + russh 0.64.1,已切回;Android 交叉編譯待 owner 驗)
 
 ---
 

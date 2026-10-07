@@ -195,6 +195,23 @@
   - 三層合起來:**對齊(b+)減少分岔 + refresh-client 自癒把殘餘分岔在輸出停 400ms 後歸零 + F5 隨手一按立即乾淨**。若這版還有殘影,Shift+F5 採證。
   - 沒實機:`sh -c` 包裝與 OSC tty 標記在真 host 未跑過(盲寫);退路都在(tty 沒抓到 → resize 舞步,行為等同 v0.1.17)。
 
+- D-46(2026-10-07,owner:「現在用 refresh 畫面會閃」):**attach 加 `tmux -T sync`,整屏重繪走 DEC 2026 synchronized output,不再閃。**
+  - 機制:D-43 自動重繪 = `refresh-client` 整屏重送,xterm 逐行重畫所以肉眼閃。`-T sync` 向 tmux 宣告 client 支援 synchronized output,tmux 把每次重繪(初繪 / refresh-client / SIGWINCH)包進 `\e[?2026h … \e[?2026l`,xterm.js 6 內建支援、收齊才一次貼上 → 重畫變原子操作。
+  - `-T` 是 tmux 3.2+ 才有:attach 的 inner script 先 `tmux -T sync -V` 探一下,失敗就不帶旗標 → 舊版 host 行為不變、attach 不炸。只改輸出框架,不碰輸入路徑(D-31),前端零改動。
+  - 本機實測(python pty):tmux 3.4 → 初繪 + refresh-client 共 2 組 2026 包裝;模擬無 `-T` 的舊 tmux → 0 組、attach 照常、無 usage 錯誤外漏。
+  - **跟殘影無關**:這解的是「治療時會閃」,不是殘影本身(殘影家族見 D-41/D-42/D-43)。owner 同時問「換回 russh 能不能修殘影」—— 不能,SSH 層只搬位元組,Phase 0.5/0.6 已證忠實;那是 D-47 另案。
+
+- D-47(2026-10-07,owner 拍板「做到 DONE」):**SSH 函式庫 makiko → russh 0.64,D-7 的 SPEC §13 deviation 收斂。**
+  - **為什麼現在能換**:D-6 卡的是 `ed25519-dalek 3.0.0-pre.6` 對新版 pkcs8 的 2 行不相容;上游已出 **3.0.0 正式版**,russh 0.64.1 dep tree 乾淨 resolve。makiko 0.2.5 一年多沒動、單一維護者,換回主流庫把 bus factor 風險一起解掉。
+  - **crypto 後端選 `ring` 不選預設 `aws-lc-rs`**(russh 強制二選一,`compile_error!`):ring 0.17 走 cc 不吃 cmake,Android NDK 交叉編譯是 rustls 生態踩熟的路;aws-lc-sys 在 NDK 下常要額外 toolchain。`default-features = false, features = ["ring", "flate2", "rsa"]`。
+  - **對外 API 不變**(`connect` / `exec` / `run_command` / `test_connection` / `upload` / `AuthMaterial` / `HostKeyPolicy`),consumers(capture / sessions / messaging / upload / commands)**零改動**;attach.rs 改用新的 `SshSession::open_pty()` → `PtyChannel::{exec,shell}` → `into_parts()`,型別走 `ssh::{PtyRead, PtyWrite, PtyMsg}` re-export,**attach.rs 不再直接 import SSH 庫**(下次再換庫只動 ssh.rs)。
+  - **TOFU 移進 russh `Handler::check_server_key`**(kex 階段,不符直接讓握手失敗,錯誤訊息同前含 stored/received 兩指紋)。fingerprint 格式查過兩邊源碼:makiko `STANDARD_NO_PAD` 與 ssh-key `Base64Unpadded` 都是 `SHA256:<無 padding>` → **既有 host_keys 紀錄照用,不會全部跳 MITM**。host certificate 認證的 server 目前 bail(makiko 時期也不支援)。
+  - **順手變好的**:ECDSA 私鑰免費支援(ssh-key);連線層 keepalive 60s×3(attach 掛幾小時不被 NAT 默默斷)。
+  - **踩到的坑**:exec 的 exit code 一開始抓不到 —— OpenSSH 順序是 **eof → exit-status → close**(子行程先關 stdout 才被 wait 到),在 Eof 就 break 會漏。改成 Eof 後再等 3s 寬限收 exit-status / Close(不無上限等,防不送 Close 的 server)。
+  - **驗證**:單元 11/11;**真 SSH 端到端 4/4**(scratchpad 起拋棄式 sshd 127.0.0.1:2222、自備 host key / authorized_keys,不碰 ~/.ssh)—— exec + exit code + stderr + 同連線並行 channel、passphrase 金鑰含「缺 passphrase 明確報錯」、二進位上傳跨 3+ chunk 往返 sha256 一致 + 目錄不存在報錯、PTY exec `stty size` = request_pty 尺寸 + shell + `window_change` + stdin/eof。測試留在 `ssh.rs` `mod live`(`#[ignore]`,env `PIERMUX_SSH_TEST_*`,`cargo test --lib ssh::live -- --ignored`)。release build(ring)過。
+  - **沒驗到的(誠實記帳)**:**Android 交叉編譯**這台沒 NDK —— ring 0.17 官方支援 aarch64/armv7-linux-android,但要 owner 跑一次 `tauri android build` 才算數;Windows build 同(ring 在 Windows 不需 NASM,理論上直接過)。rustfmt / clippy 這台沒裝,沒跑。MSRV 1.85 → **1.89**(russh 要求),README 已同步。
+  - makiko 歷史紀錄(D-6 / D-7 / D-13 spike / ISSUE / release notes)原文保留不改。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
@@ -813,10 +830,10 @@ keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sy
 - **M1d-M1h** 還沒開工(ISSUE-004..008 mocked acceptance,等 M1d 開頭)
 
 ### Tech stack 已 land
-- **Backend deps:** tauri 2 / tauri-plugin-sql 2 / sqlx 0.8 (sqlite,backend 自開 pool D-5)/ keyring 3.6 / makiko 0.2.5(D-7,SPEC §13 deviation)/ uuid 1 (v4) / chrono 0.4 / anyhow 1 / tokio
+- **Backend deps:** tauri 2 / tauri-plugin-sql 2 / sqlx 0.8 (sqlite,backend 自開 pool D-5)/ keyring 3.6 / russh 0.64(`ring` 後端;D-47 從 makiko 換回,D-7 deviation 收斂)/ uuid 1 (v4) / chrono 0.4 / anyhow 1 / tokio
 - **Frontend deps:** React 19 + Vite 7 + TS 5.8 + Tailwind 4 (`@tailwindcss/vite`) + TanStack Query 5 + radix-ui (dialog/label/select/slot) + sonner + lucide + 手寫 5 個 shadcn-style components
 - **Path alias:** `@/*` → `src/*`(vite + tsconfig)
-- **MSRV:** 1.85(D-7 makiko 加完後 bump 過)
+- **MSRV:** 1.89(D-47 russh 0.64 要求;D-7 時期 1.85)
 
 ### 重要決策(D-1..D-7)
 - D-1 hosts.id = UUID v4

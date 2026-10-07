@@ -89,7 +89,7 @@ pub fn run() {
             commands::delete_host,
             commands::test_connection,
             commands::import_private_key,
-            // M1c real(makiko exec):取代之前的 sessions_mock
+            // M1c real(SSH exec):取代之前的 sessions_mock
             sessions::list_sessions,
             sessions::host_status,
             // SPEC §6.6 kill_session + rename + new(tree view session-level)

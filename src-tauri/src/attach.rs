@@ -24,8 +24,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use makiko::bytes::Bytes;
-use makiko::{ChannelConfig, PtyRequest, PtyTerminalModes, SessionEvent, WindowChange};
 use sqlx::sqlite::SqlitePool;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
@@ -33,7 +31,7 @@ use tokio::task::JoinHandle;
 
 use crate::hosts;
 use crate::sessions;
-use crate::ssh::{self, HostKeyPolicy, SshSession};
+use crate::ssh::{self, HostKeyPolicy, PtyChannel, PtyMsg, PtyRead, PtyWrite, SshSession};
 
 #[derive(Default)]
 pub struct AttachRegistry {
@@ -42,12 +40,13 @@ pub struct AttachRegistry {
 
 struct AttachHandle {
     // 留 Arc<SshSession> 在這手上,確保 attach 期間 SSH connection 不會
-    // 被 drop(makiko::Session 是 Channel 的 thin Arc handle,本身不持
-    // ownership 連線)。reader task 不需要持有 — channel close 後 recv
-    // 自然回 None,task 會 break out。
+    // 被 drop(russh 的 channel 寫半不持 connection ownership)。reader task
+    // 持讀半 — channel close 後 wait() 自然回 None,task 會 break out。
     // scroll_session 另在這條 connection 開 exec channel 跑 tmux copy-mode。
     ssh: Arc<SshSession>,
-    session: makiko::Session,
+    // PTY channel 寫半(stdin / window_change / close)。Arc 讓 command 先 clone
+    // 出來放掉 registry lock 再 await 網路 I/O。
+    session: Arc<PtyWrite>,
     reader: Option<JoinHandle<()>>,
     // (socket, tmux session name)(scroll_session 組 copy-mode target 用,D-39)。
     // shell target 沒 tmux → None,scroll 變 no-op。
@@ -79,44 +78,26 @@ fn extract_tty_marker(buf: &str) -> Option<String> {
 
 impl Drop for AttachHandle {
     fn drop(&mut self) {
-        // close 是 idempotent;之後 reader 應該很快收到 None 自然結束,
-        // 但保險起見直接 abort
-        let _ = self.session.close();
+        // close 是 async(russh 走 channel 訊息),Drop 裡只能丟給 runtime 跑;
+        // 之後 reader 應該很快收到 None 自然結束,但保險起見直接 abort。
+        // Drop 一定發生在 tauri command(tokio runtime 內),try_current 只是
+        // 防 app 關閉時 registry 在 runtime 外被 drop 而 panic。
+        let session = self.session.clone();
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move {
+                let _ = session.close().await;
+            });
+        }
         if let Some(t) = self.reader.take() {
             t.abort();
         }
     }
 }
 
-/// 在已連的 SshSession 上開 channel + request PTY,回 (Session, Receiver)。
+/// 在已連的 SshSession 上開 channel + request PTY。
 /// `attach_session` / `attach_shell` 共用,差別在後面是 exec(tmux) 還是 shell()。
-async fn open_pty_channel(
-    ssh: &SshSession,
-    cols: u32,
-    rows: u32,
-) -> Result<(makiko::Session, makiko::SessionReceiver), String> {
-    let (session, sess_rx) = ssh
-        .client()
-        .open_session(ChannelConfig::default())
-        .await
-        .map_err(|e| format!("open session: {e}"))?;
-
-    let pty_req = PtyRequest {
-        term: "xterm-256color".to_string(),
-        width: cols,
-        height: rows,
-        width_px: 0,
-        height_px: 0,
-        modes: PtyTerminalModes::default(),
-    };
-    session
-        .request_pty(&pty_req)
-        .map_err(|e| format!("request_pty: {e}"))?
-        .wait()
-        .await
-        .map_err(|e| format!("request_pty wait: {e}"))?;
-
-    Ok((session, sess_rx))
+async fn open_pty_channel(ssh: &SshSession, cols: u32, rows: u32) -> Result<PtyChannel, String> {
+    ssh.open_pty(cols, rows).await.map_err(|e| e.to_string())
 }
 
 /// 拿準備好的 (Session, Receiver) + client 給的 attach_id,spawn reader task,
@@ -131,8 +112,8 @@ async fn finalize_attach(
     registry: &AttachRegistry,
     attach_id: String,
     ssh: Arc<SshSession>,
-    session: makiko::Session,
-    mut sess_rx: makiko::SessionReceiver,
+    session: Arc<PtyWrite>,
+    mut sess_rx: PtyRead,
     target: Option<(String, String)>,
 ) -> String {
     let app_clone = app.clone();
@@ -149,9 +130,9 @@ async fn finalize_attach(
         // D-43:流開頭掃 tty 標記(可能跨 packet,所以累積到找到或超量)
         let mut tty_scan: Option<String> = has_tmux.then(String::new);
         loop {
-            match sess_rx.recv().await {
-                Ok(Some(event)) => match event {
-                    SessionEvent::StdoutData(bytes) | SessionEvent::StderrData(bytes) => {
+            match sess_rx.wait().await {
+                Some(msg) => match msg {
+                    PtyMsg::Data { data: bytes } | PtyMsg::ExtendedData { data: bytes, .. } => {
                         let chunk = drain_utf8(&mut utf8_tail, &bytes);
                         if chunk.is_empty() {
                             continue; // 整段都是 incomplete tail,等下個 packet
@@ -172,14 +153,10 @@ async fn finalize_attach(
                             eprintln!("[attach] emit {evt} failed: {e}");
                         }
                     }
-                    SessionEvent::Eof | SessionEvent::ExitStatus(_) => break,
+                    PtyMsg::Eof | PtyMsg::Close | PtyMsg::ExitStatus { .. } => break,
                     _ => continue,
                 },
-                Ok(None) => break,
-                Err(e) => {
-                    eprintln!("[attach {attach_id_clone}] reader recv error: {e}");
-                    break;
-                }
+                None => break,
             }
         }
         // session 結束時若 tail 還有殘餘 bytes(server 在多 byte 序列中斷),
@@ -236,7 +213,7 @@ pub async fn attach_session(
         .map_err(|e| format!("ssh connect: {e}"))?;
     let ssh = Arc::new(ssh);
 
-    let (session, sess_rx) = open_pty_channel(&ssh, cols, rows).await?;
+    let mut pty = open_pty_channel(&ssh, cols, rows).await?;
 
     // D-43:先把自己的 tty 用 OSC 7777 印進流(xterm 對未註冊 OSC 靜默忽略),
     // 再 exec tmux attach。包一層 `sh -c` 讓 `$(tty)` 不受 login shell 是
@@ -254,19 +231,15 @@ pub async fn attach_session(
         shell_quote(&session_name)
     );
     let cmd = format!("sh -c {}", shell_quote(&inner));
-    session
-        .exec(cmd.as_bytes())
-        .map_err(|e| format!("exec request: {e}"))?
-        .wait()
-        .await
-        .map_err(|e| format!("exec wait: {e}"))?;
+    pty.exec(&cmd).await.map_err(|e| e.to_string())?;
+    let (sess_rx, session) = pty.into_parts();
 
     Ok(finalize_attach(
         &app,
         &registry,
         attach_id,
         ssh,
-        session,
+        Arc::new(session),
         sess_rx,
         Some((socket, session_name)),
     )
@@ -315,17 +288,13 @@ pub async fn attach_shell(
         .map_err(|e| format!("ssh connect: {e}"))?;
     let ssh = Arc::new(ssh);
 
-    let (session, sess_rx) = open_pty_channel(&ssh, cols, rows).await?;
+    let mut pty = open_pty_channel(&ssh, cols, rows).await?;
 
     // 跟 attach_session 唯一差別:不 exec tmux attach,改 call shell()
-    session
-        .shell()
-        .map_err(|e| format!("shell request: {e}"))?
-        .wait()
-        .await
-        .map_err(|e| format!("shell wait: {e}"))?;
+    pty.shell().await.map_err(|e| e.to_string())?;
+    let (sess_rx, session) = pty.into_parts();
 
-    Ok(finalize_attach(&app, &registry, attach_id, ssh, session, sess_rx, None).await)
+    Ok(finalize_attach(&app, &registry, attach_id, ssh, Arc::new(session), sess_rx, None).await)
 }
 
 /// 滾輪在 alt-screen attach 時的「看歷史」(NOTES D-24,取代 D-23 拿掉的 strip-alt-screen)。
@@ -414,8 +383,7 @@ pub async fn write_to_session(
     session_id: String,
     data: String,
 ) -> Result<(), String> {
-    // makiko::Session 是 Clone 的(Channel handle thin clone),clone 出來
-    // 後可以丟掉 Mutex lock 再 await send_stdin
+    // clone Arc<PtyWrite> 後丟掉 Mutex lock 再 await 網路寫入,別 hold lock 跨 I/O
     let session = {
         let map = registry.inner.lock().await;
         map.get(&session_id)
@@ -424,9 +392,9 @@ pub async fn write_to_session(
             .clone()
     };
     session
-        .send_stdin(Bytes::from(data.into_bytes()))
+        .data_bytes(data.into_bytes())
         .await
-        .map_err(|e| format!("send_stdin: {e}"))
+        .map_err(|e| format!("send stdin: {e}"))
 }
 
 #[tauri::command]
@@ -436,19 +404,16 @@ pub async fn resize_session(
     cols: u32,
     rows: u32,
 ) -> Result<(), String> {
-    let map = registry.inner.lock().await;
-    let handle = map
-        .get(&session_id)
-        .ok_or_else(|| format!("attach session not found: {session_id}"))?;
-    let change = WindowChange {
-        width: cols,
-        height: rows,
-        width_px: 0,
-        height_px: 0,
+    let session = {
+        let map = registry.inner.lock().await;
+        map.get(&session_id)
+            .ok_or_else(|| format!("attach session not found: {session_id}"))?
+            .session
+            .clone()
     };
-    handle
-        .session
-        .window_change(&change)
+    session
+        .window_change(cols, rows, 0, 0)
+        .await
         .map_err(|e| format!("window_change: {e}"))
 }
 
