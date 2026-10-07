@@ -241,9 +241,16 @@ pub async fn attach_session(
     // D-43:先把自己的 tty 用 OSC 7777 印進流(xterm 對未註冊 OSC 靜默忽略),
     // 再 exec tmux attach。包一層 `sh -c` 讓 `$(tty)` 不受 login shell 是
     // fish / csh 影響;整段 inner script 用 shell_quote 交給外層 shell。
+    //
+    // D-46:`-T sync` 向 tmux 宣告 client 支援 synchronized output(DEC 2026)。
+    // tmux 會把每次整屏重繪(初繪 / refresh-client / SIGWINCH)包進
+    // `\e[?2026h … \e[?2026l`,xterm.js 6 收齊才一次貼上 → D-43 的自動重繪
+    // 不再肉眼閃爍。`-T` 是 tmux 3.2+ 才有,先用 `-T sync -V` 探一下(舊版
+    // getopt 直接 usage 失敗),不支援就退回原樣,attach 不會因此炸掉。
+    // 只改輸出框架、不碰輸入路徑(D-31)。
+    let tmux = sessions::tmux_with_socket(&socket);
     let inner = format!(
-        "printf '\\033]7777;%s\\007' \"$(tty)\"; exec {} attach -t {}",
-        sessions::tmux_with_socket(&socket),
+        "printf '\\033]7777;%s\\007' \"$(tty)\"; T=''; {tmux} -T sync -V >/dev/null 2>&1 && T='-T sync'; exec {tmux} $T attach -t {}",
         shell_quote(&session_name)
     );
     let cmd = format!("sh -c {}", shell_quote(&inner));
