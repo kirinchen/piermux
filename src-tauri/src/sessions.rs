@@ -20,12 +20,15 @@ use crate::ssh::{self, AuthMaterial, HostKeyPolicy};
 /// 死掉 / 沒 server 的 socket → `list-sessions` 報錯被 `2>/dev/null` 吞,該 socket 無輸出行。
 /// 每行 5 欄:socket|name|attached|activity|windows(socket 放行首,parse 時 splitn(5))。
 /// 只多 parse,不多一趟 SSH round-trip(整段是一條 exec)。D-39。
+/// 結尾 `; true`：`for` 的 exit status = 最後一次迭代，目錄裡最後一個 socket 若是死的整段會 exit 1；
+/// D-47 的 russh `run_command` 把非 0 當 Err，明明有正常輸出卻整個失敗（owner v0.1.23 Windows 實測）。
+/// 死 socket 本來就是「吞掉略過」，exit code 不該由它決定。
 pub(crate) const TMUX_LIST_FMT: &str = "d=\"${TMUX_TMPDIR:-/tmp/tmux-$(id -u)}\"; \
      for s in $(ls -1 \"$d\" 2>/dev/null); do \
        tmux -L \"$s\" list-sessions \
          -F \"$s|#{session_name}|#{session_attached}|#{session_activity}|#{session_windows}\" \
          2>/dev/null; \
-     done";
+     done; true";
 
 #[tauri::command]
 pub async fn list_sessions(
