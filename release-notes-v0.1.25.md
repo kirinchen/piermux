@@ -26,4 +26,11 @@
 
 ## Assets
 
-Linux(`.deb` / `.AppImage`)。Windows / Android 安裝檔之後補上。
+- **Windows 桌面(x64)**
+  - `piermux_0.1.25_x64-setup.exe` — NSIS 安裝檔(建議)
+  - `piermux_0.1.25_x64_en-US.msi` — MSI(批次部署用)
+  - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
+- **Android** — `piermux-android-v0.1.25.apk`(universal,離線可跑)
+- **Linux 桌面(Ubuntu / Linux Mint,x86_64)**
+  - `piermux_0.1.25_amd64.deb` — `sudo apt install ./piermux_0.1.25_amd64.deb`
+  - `piermux_0.1.25_amd64.AppImage` — `chmod +x` 後直接執行,免安裝
