@@ -48,7 +48,8 @@ struct AttachHandle {
     // 出來放掉 registry lock 再 await 網路 I/O。
     session: Arc<PtyWrite>,
     reader: Option<JoinHandle<()>>,
-    // (socket, tmux session name)(scroll_session 組 copy-mode target 用,D-39)。
+    // (tmux 指令前綴, tmux session name)(scroll / refresh 組指令用)。前綴已依
+    // 主機算好(`tmux -L <socket>`,psmux 主機是 exe 路徑、不帶 -L;D-39 / #225)。
     // shell target 沒 tmux → None,scroll 變 no-op。
     target: Option<(String, String)>,
     // D-43:這個 attach client 在 server 端的 tty(/dev/pts/N)。attach 指令先
@@ -129,34 +130,32 @@ async fn finalize_attach(
         let mut utf8_tail: Vec<u8> = Vec::new();
         // D-43:流開頭掃 tty 標記(可能跨 packet,所以累積到找到或超量)
         let mut tty_scan: Option<String> = has_tmux.then(String::new);
-        loop {
-            match sess_rx.wait().await {
-                Some(msg) => match msg {
-                    PtyMsg::Data { data: bytes } | PtyMsg::ExtendedData { data: bytes, .. } => {
-                        let chunk = drain_utf8(&mut utf8_tail, &bytes);
-                        if chunk.is_empty() {
-                            continue; // 整段都是 incomplete tail,等下個 packet
-                        }
-                        if let Some(scan) = tty_scan.as_mut() {
-                            scan.push_str(&chunk);
-                            if let Some(tty) = extract_tty_marker(scan) {
-                                *tty_slot_reader.lock().unwrap_or_else(|e| e.into_inner()) =
-                                    Some(tty);
-                                tty_scan = None;
-                            } else if scan.len() > TTY_SCAN_LIMIT {
-                                eprintln!("[attach {attach_id_clone}] tty 標記沒出現,refresh-client 不可用");
-                                tty_scan = None;
-                            }
-                        }
-                        let evt = format!("attach-output-{attach_id_clone}");
-                        if let Err(e) = app_clone.emit(&evt, &chunk) {
-                            eprintln!("[attach] emit {evt} failed: {e}");
+        while let Some(msg) = sess_rx.wait().await {
+            match msg {
+                PtyMsg::Data { data: bytes } | PtyMsg::ExtendedData { data: bytes, .. } => {
+                    let chunk = drain_utf8(&mut utf8_tail, &bytes);
+                    if chunk.is_empty() {
+                        continue; // 整段都是 incomplete tail,等下個 packet
+                    }
+                    if let Some(scan) = tty_scan.as_mut() {
+                        scan.push_str(&chunk);
+                        if let Some(tty) = extract_tty_marker(scan) {
+                            *tty_slot_reader.lock().unwrap_or_else(|e| e.into_inner()) = Some(tty);
+                            tty_scan = None;
+                        } else if scan.len() > TTY_SCAN_LIMIT {
+                            eprintln!(
+                                "[attach {attach_id_clone}] tty 標記沒出現,refresh-client 不可用"
+                            );
+                            tty_scan = None;
                         }
                     }
-                    PtyMsg::Eof | PtyMsg::Close | PtyMsg::ExitStatus { .. } => break,
-                    _ => continue,
-                },
-                None => break,
+                    let evt = format!("attach-output-{attach_id_clone}");
+                    if let Err(e) = app_clone.emit(&evt, &chunk) {
+                        eprintln!("[attach] emit {evt} failed: {e}");
+                    }
+                }
+                PtyMsg::Eof | PtyMsg::Close | PtyMsg::ExitStatus { .. } => break,
+                _ => continue,
             }
         }
         // session 結束時若 tail 還有殘餘 bytes(server 在多 byte 序列中斷),
@@ -200,15 +199,7 @@ pub async fn attach_session(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
-    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
-    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
-    let policy = HostKeyPolicy::Tofu {
-        pool: pool.inner(),
-        host_id: &host.id,
-    };
-
-    let ssh = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
+    let ssh = sessions::connect_host(pool.inner(), &host)
         .await
         .map_err(|e| format!("ssh connect: {e}"))?;
     let ssh = Arc::new(ssh);
@@ -225,12 +216,16 @@ pub async fn attach_session(
     // 不再肉眼閃爍。`-T` 是 tmux 3.2+ 才有,先用 `-T sync -V` 探一下(舊版
     // getopt 直接 usage 失敗),不支援就退回原樣,attach 不會因此炸掉。
     // 只改輸出框架、不碰輸入路徑(D-31)。
-    let tmux = sessions::tmux_with_socket(&socket);
-    let inner = format!(
-        "printf '\\033]7777;%s\\007' \"$(tty)\"; T=''; {tmux} -T sync -V >/dev/null 2>&1 && T='-T sync'; exec {tmux} $T attach -t {}",
-        shell_quote(&session_name)
-    );
-    let cmd = format!("sh -c {}", shell_quote(&inner));
+    let tmux = sessions::tmux_cmd(&host, &socket);
+    let cmd = if host.is_psmux() {
+        psmux_attach_cmd(&host, &session_name)?
+    } else {
+        let inner = format!(
+            "printf '\\033]7777;%s\\007' \"$(tty)\"; T=''; {tmux} -T sync -V >/dev/null 2>&1 && T='-T sync'; exec {tmux} $T attach -t {}",
+            shell_quote(&session_name)
+        );
+        format!("sh -c {}", shell_quote(&inner))
+    };
     pty.exec(&cmd).await.map_err(|e| e.to_string())?;
     let (sess_rx, session) = pty.into_parts();
 
@@ -241,9 +236,24 @@ pub async fn attach_session(
         ssh,
         Arc::new(session),
         sess_rx,
-        Some((socket, session_name)),
+        Some((tmux, session_name)),
     )
     .await)
+}
+
+/// psmux 主機的 attach 指令(#225)。PTY 那條**不經** remote_shell:Windows OpenSSH
+/// 預設 shell 是 cmd,直接 exec psmux.exe 就拿到 ConPTY(spike 實測 attach / resize /
+/// 斷線 detach 都正常)。所以引號照 cmd 的規則:整段用雙引號包,`"` 和 `%` 擋掉
+/// (cmd 在雙引號內仍會展開 `%VAR%`)。沒有 tty 標記(psmux `refresh-client -t <tty>`
+/// 不吃 tty)、也不探 `-T sync`(psmux 3.4 不認)—— 前端會退回 resize 舞步。
+fn psmux_attach_cmd(host: &hosts::Host, session_name: &str) -> Result<String, String> {
+    let bin = host.tmux_bin.as_deref().unwrap_or("tmux");
+    for (what, v) in [("tmux_bin", bin), ("session 名", session_name)] {
+        if v.contains(['"', '%']) {
+            return Err(format!("{what} 含 `\"` 或 `%`,psmux attach 不支援:{v}"));
+        }
+    }
+    Ok(format!("\"{bin}\" attach -t \"{session_name}\""))
 }
 
 /// D-41:client 生成的 attach_id 基本驗證 —— 非空、長度合理、不與現有 attach 撞號。
@@ -294,7 +304,16 @@ pub async fn attach_shell(
     pty.shell().await.map_err(|e| e.to_string())?;
     let (sess_rx, session) = pty.into_parts();
 
-    Ok(finalize_attach(&app, &registry, attach_id, ssh, Arc::new(session), sess_rx, None).await)
+    Ok(finalize_attach(
+        &app,
+        &registry,
+        attach_id,
+        ssh,
+        Arc::new(session),
+        sess_rx,
+        None,
+    )
+    .await)
 }
 
 /// 滾輪在 alt-screen attach 時的「看歷史」(NOTES D-24,取代 D-23 拿掉的 strip-alt-screen)。
@@ -314,24 +333,24 @@ pub async fn scroll_session(
     lines: u32,
 ) -> Result<(), String> {
     // clone Arc<SshSession> + (socket, session) 後立刻釋放 lock,別 hold mutex 跨 await
-    let (ssh, socket, session) = {
+    let (ssh, tmux, session) = {
         let map = registry.inner.lock().await;
         let handle = map
             .get(&session_id)
             .ok_or_else(|| format!("attach session not found: {session_id}"))?;
         match &handle.target {
             None => return Ok(()), // shell:沒 tmux,不支援 copy-mode
-            Some((sock, sess)) => (handle.ssh.clone(), sock.clone(), sess.clone()),
+            Some((tmux, sess)) => (handle.ssh.clone(), tmux.clone(), sess.clone()),
         }
     };
 
     let lines = lines.clamp(1, 500);
     let pane = shell_quote(&format!("{session}:0"));
-    let tmux = sessions::tmux_with_socket(&socket);
     let dir = if up { "scroll-up" } else { "scroll-down" };
     // 先確保進 copy-mode(已在 copy-mode 時 tmux 視為 no-op,不重置卷動位置),
     // 再送 N 次 scroll。scroll-down 滾到底 tmux 會自動退出 copy-mode。
-    let cmd = format!("{tmux} copy-mode -t {pane} ; {tmux} send-keys -t {pane} -X -N {lines} {dir}");
+    let cmd =
+        format!("{tmux} copy-mode -t {pane} ; {tmux} send-keys -t {pane} -X -N {lines} {dir}");
     ssh.exec(&cmd)
         .await
         .map(|_| ())
@@ -349,14 +368,14 @@ pub async fn refresh_attach(
     registry: State<'_, AttachRegistry>,
     session_id: String,
 ) -> Result<(), String> {
-    let (ssh, socket, tty) = {
+    let (ssh, tmux, tty) = {
         let map = registry.inner.lock().await;
         let handle = map
             .get(&session_id)
             .ok_or_else(|| format!("attach session not found: {session_id}"))?;
-        let socket = match &handle.target {
+        let tmux = match &handle.target {
             None => return Err("shell target 沒有 tmux client".into()),
-            Some((sock, _)) => sock.clone(),
+            Some((tmux, _)) => tmux.clone(),
         };
         let tty = handle
             .tty
@@ -364,13 +383,9 @@ pub async fn refresh_attach(
             .unwrap_or_else(|e| e.into_inner())
             .clone()
             .ok_or_else(|| "attach client tty 未知".to_string())?;
-        (handle.ssh.clone(), socket, tty)
+        (handle.ssh.clone(), tmux, tty)
     };
-    let cmd = format!(
-        "{} refresh-client -t {}",
-        sessions::tmux_with_socket(&socket),
-        shell_quote(&tty)
-    );
+    let cmd = format!("{tmux} refresh-client -t {}", shell_quote(&tty));
     ssh.exec(&cmd)
         .await
         .map(|_| ())

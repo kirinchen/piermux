@@ -15,7 +15,6 @@ use tauri::State;
 
 use crate::hosts;
 use crate::sessions;
-use crate::ssh::{self, HostKeyPolicy};
 
 /// 單檔上限 512MB — 純防呆(整檔讀進記憶體;真要傳巨檔該走別的機制)。
 const MAX_UPLOAD_BYTES: u64 = 512 * 1024 * 1024;
@@ -47,29 +46,35 @@ async fn upload_inner(
     }
 
     // 先確認是一般檔 + 大小防呆,再整檔讀進來
-    let meta = std::fs::metadata(local_path)
-        .with_context(|| format!("讀不到本地檔:{local_path}"))?;
+    let meta =
+        std::fs::metadata(local_path).with_context(|| format!("讀不到本地檔:{local_path}"))?;
     if !meta.is_file() {
         bail!("不是一般檔案:{local_path}");
     }
     if meta.len() > MAX_UPLOAD_BYTES {
-        bail!("檔案過大(>{}MB):{local_path}", MAX_UPLOAD_BYTES / 1024 / 1024);
+        bail!(
+            "檔案過大(>{}MB):{local_path}",
+            MAX_UPLOAD_BYTES / 1024 / 1024
+        );
     }
     let data = std::fs::read(local_path).with_context(|| format!("讀本地檔:{local_path}"))?;
 
-    let host = hosts::fetch_one(pool, host_id).await.context("fetch host")?;
-    let password = sessions::read_password_for(&host)?;
-    let auth = sessions::build_auth(&host, password.as_deref())?;
-    let port = sessions::port_u16(&host)?;
-    let policy = HostKeyPolicy::Tofu { pool, host_id };
-    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
+    let host = hosts::fetch_one(pool, host_id)
+        .await
+        .context("fetch host")?;
+    if host.is_psmux() {
+        // #225:upload 要獨佔 exec 的 stdin 灌檔案,跟 remote_shell「腳本走 stdin」衝突;
+        // pane_current_path 也是 Windows 路徑。先不支援。
+        bail!("Windows(psmux)主機暫不支援上傳檔案");
+    }
+    let ssh_session = sessions::connect_host(pool, &host)
         .await
         .with_context(|| format!("ssh connect to {}", host.display_name))?;
 
     // 1. 拿 pane current path(window 0 active pane 的活 cwd)
     let pwd_cmd = format!(
         "{} display-message -p -t {}:0 '#{{pane_current_path}}'",
-        sessions::tmux_with_socket(socket),
+        sessions::tmux_cmd(&host, socket),
         shell_quote(session_name),
     );
     let pwd_raw = ssh_session

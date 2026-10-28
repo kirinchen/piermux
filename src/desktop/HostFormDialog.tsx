@@ -24,7 +24,7 @@ import {
   useUpdateHost,
   useTestConnection,
 } from "@/hooks/useHosts";
-import { emptyHostForm, hostToForm } from "@/lib/types";
+import { WINDOWS_REMOTE_SHELL, emptyHostForm, hostToForm } from "@/lib/types";
 import type { AuthType, Host, HostForm } from "@/lib/types";
 import { api } from "@/lib/tauri";
 
@@ -189,6 +189,22 @@ export function HostFormDialog({ open, onOpenChange, editing }: Props) {
               />
             </FieldRow>
           )}
+
+          <FieldRow label="遠端 shell(Windows 主機才填)">
+            <Input
+              value={form.remote_shell ?? ""}
+              onChange={(e) => set("remote_shell")(e.target.value || null)}
+              placeholder={WINDOWS_REMOTE_SHELL}
+            />
+          </FieldRow>
+
+          <FieldRow label="tmux 執行檔(留空 = tmux)">
+            <Input
+              value={form.tmux_bin ?? ""}
+              onChange={(e) => set("tmux_bin")(e.target.value || null)}
+              placeholder="C:/Users/<you>/AppData/Local/Microsoft/WinGet/Packages/…/psmux.exe"
+            />
+          </FieldRow>
 
           <FieldRow label="排序(數字越小越上面)">
             <Input

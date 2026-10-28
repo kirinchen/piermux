@@ -6,7 +6,7 @@ import {
   useUpdateHost,
   useTestConnection,
 } from "@/hooks/useHosts";
-import { emptyHostForm, hostToForm } from "@/lib/types";
+import { WINDOWS_REMOTE_SHELL, emptyHostForm, hostToForm } from "@/lib/types";
 import type { AuthType, Host, HostForm } from "@/lib/types";
 import { api } from "@/lib/tauri";
 
@@ -204,6 +204,26 @@ export function AndroidHostFormScreen({ editing, onClose }: Props) {
             />
           </Field>
         )}
+
+        <Field label="遠端 shell(Windows 主機才填)">
+          <input
+            className={inputCls}
+            value={form.remote_shell ?? ""}
+            onChange={(e) => set("remote_shell")(e.target.value || null)}
+            placeholder={WINDOWS_REMOTE_SHELL}
+            autoCapitalize="none"
+          />
+        </Field>
+
+        <Field label="tmux 執行檔(留空 = tmux)">
+          <input
+            className={inputCls}
+            value={form.tmux_bin ?? ""}
+            onChange={(e) => set("tmux_bin")(e.target.value || null)}
+            placeholder="C:/…/psmux.exe"
+            autoCapitalize="none"
+          />
+        </Field>
 
         <Field label="排序(數字越小越上面)">
           <input

@@ -14,6 +14,9 @@ export type Host = {
   sort_order: number;
   created_at: string;
   last_used_at: string | null;
+  // #225:null = 舊行為(`tmux` + 直接 exec)。remote_shell 有值 = Windows / psmux 主機
+  tmux_bin: string | null;
+  remote_shell: string | null;
 };
 
 export type HostForm = {
@@ -25,6 +28,8 @@ export type HostForm = {
   private_key_path: string | null;
   password: string | null;
   sort_order: number;
+  tmux_bin: string | null;
+  remote_shell: string | null;
 };
 
 export const emptyHostForm = (): HostForm => ({
@@ -36,6 +41,8 @@ export const emptyHostForm = (): HostForm => ({
   private_key_path: null,
   password: null,
   sort_order: 0,
+  tmux_bin: null,
+  remote_shell: null,
 });
 
 // Mirrors src-tauri/src/hosts.rs Session
@@ -68,4 +75,10 @@ export const hostToForm = (h: Host): HostForm => ({
   private_key_path: h.private_key_path,
   password: null, // 不從 backend 讀回密碼,改密碼要再填一次
   sort_order: h.sort_order,
+  tmux_bin: h.tmux_bin,
+  remote_shell: h.remote_shell,
 });
+
+// #225:Windows 主機(psmux)表單預填值。Git Bash 當遠端 shell;tmux_bin 用 C:/ 正斜線
+// 路徑,Git Bash 腳本跟 cmd 直接 exec(attach)兩邊都認得。
+export const WINDOWS_REMOTE_SHELL = '"C:\\Program Files\\Git\\bin\\bash.exe" -ls';

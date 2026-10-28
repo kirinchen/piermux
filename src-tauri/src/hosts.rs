@@ -42,6 +42,22 @@ pub struct Host {
     pub sort_order: i64,
     pub created_at: String,
     pub last_used_at: Option<String>,
+    /// 遠端 tmux 執行檔(#225)。`None` = `tmux`(走 PATH)。Windows psmux 主機要填
+    /// 真 exe 路徑(winget 的 symlink 在 ssh 的 session 0 下 Permission denied)。
+    pub tmux_bin: Option<String>,
+    /// 遠端 shell(#225)。`None` = 直接 exec(POSIX login shell,Linux 主機行為不變)。
+    /// 有值 = 這台是 Windows / psmux 主機:非 PTY 指令改成 exec 這個 shell、腳本從 stdin
+    /// 送進去(Windows OpenSSH 預設 shell 是 cmd,沒有 `sh -c`),並啟用 psmux 模式
+    /// (不帶 `-L`、不從 ssh 建 session)。見 `is_psmux`。
+    pub remote_shell: Option<String>,
+}
+
+impl Host {
+    /// psmux 模式(#225):有設 `remote_shell` 就是 Windows 主機 —— 唯一需要包遠端
+    /// shell 的理由就是登入 shell 不是 POSIX。
+    pub fn is_psmux(&self) -> bool {
+        self.remote_shell.is_some()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +72,10 @@ pub struct HostForm {
     pub password: Option<String>,
     #[serde(default)]
     pub sort_order: i64,
+    #[serde(default)]
+    pub tmux_bin: Option<String>,
+    #[serde(default)]
+    pub remote_shell: Option<String>,
 }
 
 fn default_port() -> i64 {
@@ -80,6 +100,7 @@ pub async fn open_pool(db_path: &Path) -> Result<SqlitePool> {
         .await?;
     apply_schema(&pool).await?;
     migrate_capture_cache_socket(&pool).await?;
+    migrate_hosts_mux_columns(&pool).await?;
     Ok(pool)
 }
 
@@ -93,9 +114,7 @@ async fn migrate_capture_cache_socket(pool: &SqlitePool) -> Result<()> {
         .fetch_all(pool)
         .await
         .context("PRAGMA table_info(capture_cache)")?;
-    let has_socket = cols
-        .iter()
-        .any(|r| r.get::<String, _>("name") == "socket");
+    let has_socket = cols.iter().any(|r| r.get::<String, _>("name") == "socket");
     if has_socket {
         return Ok(());
     }
@@ -117,6 +136,27 @@ async fn migrate_capture_cache_socket(pool: &SqlitePool) -> Result<()> {
             .execute(pool)
             .await
             .with_context(|| format!("migrate capture_cache: {stmt}"))?;
+    }
+    Ok(())
+}
+
+/// hosts 加 `tmux_bin` / `remote_shell`(#225)。兩欄都 nullable、NULL = 舊行為,
+/// 所以全新 / 既有 DB 一律缺哪欄補哪欄,舊資料不用動。
+async fn migrate_hosts_mux_columns(pool: &SqlitePool) -> Result<()> {
+    use sqlx::Row;
+    let cols = sqlx::query("PRAGMA table_info(hosts)")
+        .fetch_all(pool)
+        .await
+        .context("PRAGMA table_info(hosts)")?;
+    let names: Vec<String> = cols.iter().map(|r| r.get::<String, _>("name")).collect();
+    for col in ["tmux_bin", "remote_shell"] {
+        if names.iter().any(|n| n == col) {
+            continue;
+        }
+        sqlx::query(&format!("ALTER TABLE hosts ADD COLUMN {col} TEXT"))
+            .execute(pool)
+            .await
+            .with_context(|| format!("add hosts.{col}"))?;
     }
     Ok(())
 }
@@ -145,7 +185,8 @@ async fn apply_schema(pool: &SqlitePool) -> Result<()> {
 }
 
 const SELECT_COLUMNS: &str = "id, display_name, ssh_host, ssh_port, ssh_user, auth_type, \
-                              private_key_path, sort_order, created_at, last_used_at";
+                              private_key_path, sort_order, created_at, last_used_at, \
+                              tmux_bin, remote_shell";
 
 pub async fn list_hosts(pool: &SqlitePool) -> Result<Vec<Host>> {
     let sql = format!("SELECT {SELECT_COLUMNS} FROM hosts ORDER BY sort_order, display_name");
@@ -158,8 +199,9 @@ pub async fn create_host(pool: &SqlitePool, form: &HostForm) -> Result<Host> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         "INSERT INTO hosts (id, display_name, ssh_host, ssh_port, ssh_user, \
-                            auth_type, private_key_path, sort_order, created_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            auth_type, private_key_path, sort_order, created_at, \
+                            tmux_bin, remote_shell) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&form.display_name)
@@ -170,6 +212,8 @@ pub async fn create_host(pool: &SqlitePool, form: &HostForm) -> Result<Host> {
     .bind(&form.private_key_path)
     .bind(form.sort_order)
     .bind(&now)
+    .bind(blank_to_none(&form.tmux_bin))
+    .bind(blank_to_none(&form.remote_shell))
     .execute(pool)
     .await?;
     fetch_one(pool, &id).await
@@ -178,7 +222,8 @@ pub async fn create_host(pool: &SqlitePool, form: &HostForm) -> Result<Host> {
 pub async fn update_host(pool: &SqlitePool, id: &str, form: &HostForm) -> Result<Host> {
     sqlx::query(
         "UPDATE hosts SET display_name = ?, ssh_host = ?, ssh_port = ?, ssh_user = ?, \
-                          auth_type = ?, private_key_path = ?, sort_order = ? \
+                          auth_type = ?, private_key_path = ?, sort_order = ?, \
+                          tmux_bin = ?, remote_shell = ? \
          WHERE id = ?",
     )
     .bind(&form.display_name)
@@ -188,10 +233,20 @@ pub async fn update_host(pool: &SqlitePool, id: &str, form: &HostForm) -> Result
     .bind(&form.auth_type)
     .bind(&form.private_key_path)
     .bind(form.sort_order)
+    .bind(blank_to_none(&form.tmux_bin))
+    .bind(blank_to_none(&form.remote_shell))
     .bind(id)
     .execute(pool)
     .await?;
     fetch_one(pool, id).await
+}
+
+/// 表單空字串當沒填(NULL = 舊行為),前後空白也去掉。
+fn blank_to_none(v: &Option<String>) -> Option<String> {
+    v.as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub async fn delete_host(pool: &SqlitePool, id: &str) -> Result<()> {

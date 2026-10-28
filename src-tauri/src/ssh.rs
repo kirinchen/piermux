@@ -84,14 +84,27 @@ pub enum HostKeyPolicy<'a> {
 /// host 一條 SSH 跑多 capture channel(SPEC §9.2 「host 內限制 3 個並行 channel」)。
 pub struct SshSession {
     handle: Handle<TofuHandler>,
+    /// #225:`Some(shell)` = exec 不直接把 cmd 當指令,改成 exec `shell`、cmd 當腳本從
+    /// stdin 送進去(Windows OpenSSH 預設 shell 是 cmd,沒有 `sh -c`、引號規則也不同)。
+    remote_shell: Option<String>,
 }
 
 impl SshSession {
+    /// 設遠端 shell(#225,見欄位說明)。`None` = 直接 exec(預設)。
+    pub fn with_remote_shell(mut self, remote_shell: Option<String>) -> Self {
+        self.remote_shell = remote_shell;
+        self
+    }
+
     /// 在這條 connection 上開新 channel 跑 cmd,收齊 stdout 回傳。
     /// `&self` 故可同時被多個 task await(russh `channel_open_session(&self)`,
     /// channel multiplexing OK)。exit code 非 0 → Err 帶 stderr。
+    /// 有 `remote_shell` 時 cmd 是交給那個 shell 的 POSIX 腳本(經 stdin)。
     pub async fn exec(&self, cmd: &str) -> Result<String> {
-        exec_on(&self.handle, cmd).await
+        match &self.remote_shell {
+            None => exec_on(&self.handle, cmd, None).await,
+            Some(shell) => exec_on(&self.handle, shell, Some(cmd)).await,
+        }
     }
 
     /// 把 `data` 寫進遠端 `remote_cmd_target`(D-40)。不走 SFTP(多一個 subsystem
@@ -178,13 +191,19 @@ pub async fn connect(
 
     // TOFU 不符會從 check_server_key 以 anyhow error 丟出來,原封往上傳
     // (caller 用 `{e}` 印,不能再包一層 context 把訊息蓋掉)。
-    let mut handle = timeout(CONNECT_TIMEOUT, client::connect(config, (host, port), handler))
-        .await
-        .map_err(|_| anyhow!("ssh connect timeout ({}s)", CONNECT_TIMEOUT.as_secs()))??;
+    let mut handle = timeout(
+        CONNECT_TIMEOUT,
+        client::connect(config, (host, port), handler),
+    )
+    .await
+    .map_err(|_| anyhow!("ssh connect timeout ({}s)", CONNECT_TIMEOUT.as_secs()))??;
 
     do_auth(&mut handle, user, auth).await?;
 
-    Ok(SshSession { handle })
+    Ok(SshSession {
+        handle,
+        remote_shell: None,
+    })
 }
 
 pub async fn test_connection(
@@ -199,20 +218,6 @@ pub async fn test_connection(
     // exec whoami 驗 channel 可開、auth + exec 全鏈路通
     session.exec("whoami").await?;
     Ok(())
-}
-
-/// 連 + auth + 跑單一 cmd 後直接收尾。one-shot 場景用(`list_sessions` /
-/// `capture_session`)。需要連一次跑多 cmd 的場景請用 `connect` + `SshSession::exec`。
-pub async fn run_command(
-    host: &str,
-    port: u16,
-    user: &str,
-    auth: AuthMaterial<'_>,
-    policy: HostKeyPolicy<'_>,
-    cmd: &str,
-) -> Result<String> {
-    let session = connect(host, port, user, auth, policy).await?;
-    session.exec(cmd).await
 }
 
 // ---- Handler:TOFU 在 kex 階段驗 server key ----
@@ -317,7 +322,12 @@ async fn collect_exec_output(read: &mut PtyRead) -> (Vec<u8>, Vec<u8>, Option<u3
     (stdout, stderr, exit_code)
 }
 
-async fn exec_on(handle: &Handle<TofuHandler>, cmd: &str) -> Result<String> {
+/// `stdin_script` 有值:exec `cmd`(遠端 shell)後把腳本寫進 stdin 再 eof(#225)。
+async fn exec_on(
+    handle: &Handle<TofuHandler>,
+    cmd: &str,
+    stdin_script: Option<&str>,
+) -> Result<String> {
     let channel = handle
         .channel_open_session()
         .await
@@ -329,11 +339,23 @@ async fn exec_on(handle: &Handle<TofuHandler>, cmd: &str) -> Result<String> {
         .map_err(|e| anyhow!("exec request: {e}"))?;
     await_reply(&mut read, "exec").await?;
 
+    if let Some(script) = stdin_script {
+        // 結尾補換行:最後一行沒 \n 的話 bash 讀 stdin 也會跑,但保險
+        let mut body = script.as_bytes().to_vec();
+        body.push(b'\n');
+        write
+            .data_bytes(body)
+            .await
+            .map_err(|e| anyhow!("send script: {e}"))?;
+        write.eof().await.map_err(|e| anyhow!("send eof: {e}"))?;
+    }
+
     let (stdout, stderr, exit_code) = collect_exec_output(&mut read).await;
     if let Some(code) = exit_code {
         if code != 0 {
             let stderr_str = String::from_utf8_lossy(&stderr);
-            bail!("exec `{cmd}` exit code {code}: {stderr_str}");
+            let shown = stdin_script.unwrap_or(cmd);
+            bail!("exec `{shown}` exit code {code}: {stderr_str}");
         }
     }
     Ok(String::from_utf8_lossy(&stdout).into_owned())
@@ -376,7 +398,11 @@ async fn upload_on(
     Ok(())
 }
 
-async fn do_auth(handle: &mut Handle<TofuHandler>, user: &str, auth: AuthMaterial<'_>) -> Result<()> {
+async fn do_auth(
+    handle: &mut Handle<TofuHandler>,
+    user: &str,
+    auth: AuthMaterial<'_>,
+) -> Result<()> {
     match auth {
         AuthMaterial::Password(pw) => {
             match handle
@@ -432,7 +458,12 @@ mod live {
         let port = std::env::var("PIERMUX_SSH_TEST_PORT").ok()?.parse().ok()?;
         let user = std::env::var("PIERMUX_SSH_TEST_USER").ok()?;
         let key = PathBuf::from(std::env::var("PIERMUX_SSH_TEST_KEY").ok()?);
-        Some(Env { host, port, user, key })
+        Some(Env {
+            host,
+            port,
+            user,
+            key,
+        })
     }
 
     async fn connect_env(e: &Env, key: &Path, passphrase: Option<&str>) -> SshSession {
@@ -440,7 +471,10 @@ mod live {
             &e.host,
             e.port,
             &e.user,
-            AuthMaterial::Key { path: key, passphrase },
+            AuthMaterial::Key {
+                path: key,
+                passphrase,
+            },
             HostKeyPolicy::AcceptAny,
         )
         .await
@@ -455,7 +489,11 @@ mod live {
         let out = s.exec("whoami").await.unwrap();
         assert_eq!(out.trim(), e.user);
         // stderr + 非 0 exit 要變 Err 且帶 stderr
-        let err = s.exec("echo boom >&2; exit 3").await.unwrap_err().to_string();
+        let err = s
+            .exec("echo boom >&2; exit 3")
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("exit code 3") && err.contains("boom"), "{err}");
         // 同一條連線多 channel 並行
         let (a, b) = tokio::join!(s.exec("echo A"), s.exec("echo B"));
@@ -474,11 +512,20 @@ mod live {
         };
         let kp = PathBuf::from(kp);
         // 缺 passphrase → 明確錯誤,不是亂碼
-        let err = connect(&e.host, e.port, &e.user, AuthMaterial::Key { path: &kp, passphrase: None }, HostKeyPolicy::AcceptAny)
-            .await
-            .err()
-            .map(|e| e.to_string())
-            .expect("缺 passphrase 應該失敗");
+        let err = connect(
+            &e.host,
+            e.port,
+            &e.user,
+            AuthMaterial::Key {
+                path: &kp,
+                passphrase: None,
+            },
+            HostKeyPolicy::AcceptAny,
+        )
+        .await
+        .err()
+        .map(|e| e.to_string())
+        .expect("缺 passphrase 應該失敗");
         assert!(err.contains("passphrase"), "{err}");
         let s = connect_env(&e, &kp, Some(&pp)).await;
         assert_eq!(s.exec("echo ok").await.unwrap().trim(), "ok");
@@ -490,10 +537,17 @@ mod live {
         let Some(e) = env() else { return };
         let s = connect_env(&e, &e.key, None).await;
         // 跨多個 UPLOAD_CHUNK + 含所有 byte 值
-        let data: Vec<u8> = (0..(UPLOAD_CHUNK * 3 + 777)).map(|i| (i % 251) as u8).collect();
+        let data: Vec<u8> = (0..(UPLOAD_CHUNK * 3 + 777))
+            .map(|i| (i % 251) as u8)
+            .collect();
         let remote = format!("/tmp/piermux-ssh-test-{}.bin", std::process::id());
         s.upload(&format!("'{remote}'"), &data).await.unwrap();
-        let sum_remote = s.exec(&format!("sha256sum '{remote}' | cut -d' ' -f1; rm -f '{remote}'")).await.unwrap();
+        let sum_remote = s
+            .exec(&format!(
+                "sha256sum '{remote}' | cut -d' ' -f1; rm -f '{remote}'"
+            ))
+            .await
+            .unwrap();
         let sum_local = {
             use sha2_free::hex_sha256;
             hex_sha256(&data)
@@ -510,7 +564,9 @@ mod live {
         let s = connect_env(&e, &e.key, None).await;
         // exec 路(attach_session):PTY 上跑指令,stty 看到的尺寸要等於 request_pty 的
         let mut pty = s.open_pty(97, 31).await.unwrap();
-        pty.exec("stty size; printf 'PTY_EXEC_OK\\n'").await.unwrap();
+        pty.exec("stty size; printf 'PTY_EXEC_OK\\n'")
+            .await
+            .unwrap();
         let (mut rx, _tx) = pty.into_parts();
         let (out, _, _) = collect_exec_output(&mut rx).await;
         let out = String::from_utf8_lossy(&out);
@@ -522,10 +578,13 @@ mod live {
         pty.shell().await.unwrap();
         let (mut rx, tx) = pty.into_parts();
         tx.window_change(120, 40, 0, 0).await.unwrap();
-        tx.data_bytes(b"stty size; echo SHELL_OK; exit\n".to_vec()).await.unwrap();
-        let (out, _, _) = tokio::time::timeout(Duration::from_secs(10), collect_exec_output(&mut rx))
+        tx.data_bytes(b"stty size; echo SHELL_OK; exit\n".to_vec())
             .await
-            .expect("shell 10s 內要結束");
+            .unwrap();
+        let (out, _, _) =
+            tokio::time::timeout(Duration::from_secs(10), collect_exec_output(&mut rx))
+                .await
+                .expect("shell 10s 內要結束");
         let out = String::from_utf8_lossy(&out);
         assert!(out.contains("40 120"), "{out}");
         assert!(out.contains("SHELL_OK"), "{out}");
@@ -545,7 +604,11 @@ mod live {
                 .expect("sha256sum");
             child.stdin.take().unwrap().write_all(data).unwrap();
             let out = child.wait_with_output().unwrap();
-            String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap().to_string()
+            String::from_utf8_lossy(&out.stdout)
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .to_string()
         }
     }
 }

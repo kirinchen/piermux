@@ -14,7 +14,7 @@
 //   capture_all 內部 swallow,讓其他 host 照跑(對齊 SPEC §3.3「失敗 host 標 ⚠ 不影響其他」)
 //
 // SSH 連線策略(SPEC §9.2):
-// - capture_session:單一 session → 用 `ssh::run_command`(1 connect, 1 exec)
+// - capture_session:單一 session → 用 `sessions::run_on_host`(1 connect, 1 exec)
 // - capture_host:**一個 host 一條 SSH connection**,在這條 connection 上跑
 //   list-sessions + N 個 capture-pane channel,用 `Semaphore(3)` 限速
 // - capture_all:對每 host 各自開 1 條 SSH 並行;host 之間 fully parallel
@@ -29,7 +29,7 @@ use tokio::sync::Semaphore;
 
 use crate::hosts::{self, Host};
 use crate::sessions;
-use crate::ssh::{self, HostKeyPolicy, SshSession};
+use crate::ssh::SshSession;
 
 const HOST_CONCURRENCY: usize = 3;
 
@@ -132,19 +132,12 @@ pub async fn capture_screen(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
-    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
-    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
-    let policy = HostKeyPolicy::Tofu {
-        pool: pool.inner(),
-        host_id: &host.id,
-    };
     let cmd = format!(
         "{} capture-pane -t {}:0 -p",
-        sessions::tmux_with_socket(&socket),
+        sessions::tmux_cmd(&host, &socket),
         shell_quote(&session_name),
     );
-    ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, &cmd)
+    sessions::run_on_host(pool.inner(), &host, &cmd)
         .await
         .map_err(|e| e.to_string())
 }
@@ -164,7 +157,11 @@ pub async fn save_debug_dump(file_stem: String, contents: String) -> Result<Stri
     } else {
         stem
     };
-    let name = format!("piermux-{}-{}.json", stem, Utc::now().format("%Y%m%d-%H%M%S"));
+    let name = format!(
+        "piermux-{}-{}.json",
+        stem,
+        Utc::now().format("%Y%m%d-%H%M%S")
+    );
     let path = std::env::temp_dir().join(name);
     tokio::fs::write(&path, contents)
         .await
@@ -199,13 +196,12 @@ pub async fn probe_host_widths(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    let password = sessions::read_password_for(&host).map_err(|e| e.to_string())?;
-    let auth = sessions::build_auth(&host, password.as_deref()).map_err(|e| e.to_string())?;
-    let port = sessions::port_u16(&host).map_err(|e| e.to_string())?;
-    let policy = HostKeyPolicy::Tofu {
-        pool: pool.inner(),
-        host_id: &host.id,
-    };
+
+    if host.is_psmux() {
+        // #225:探針要 new-session(會在 Windows session 0 起 server)+ kill-server,
+        // 兩件都是 psmux 主機的紅線;psmux 字寬跟著 Windows Terminal 走,先不探。
+        return Err("Windows(psmux)主機不跑字寬探針".into());
+    }
 
     // 腳本走 heredoc 餵 octal 字元行;pane 內只有 printf + sleep,外層只用
     // tmux CLI(new-session / respawn-pane / display-message),相容性最大。
@@ -229,7 +225,7 @@ tmux -L "$S" kill-server >/dev/null 2>&1 || true
 "#
     );
 
-    ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, &script)
+    sessions::run_on_host(pool.inner(), &host, &script)
         .await
         .map_err(|e| format!("width probe on host {}: {e}", host.display_name))
 }
@@ -242,21 +238,14 @@ async fn capture_host_inner(
     host: Host,
 ) -> Result<Vec<CaptureResult>> {
     // 1. 一個 host 一條 SSH connection(SPEC §9.2)
-    let password = sessions::read_password_for(&host)?;
-    let auth = sessions::build_auth(&host, password.as_deref())?;
-    let port = sessions::port_u16(&host)?;
-    let policy = HostKeyPolicy::Tofu {
-        pool,
-        host_id: &host.id,
-    };
-    let ssh_session = ssh::connect(&host.ssh_host, port, &host.ssh_user, auth, policy)
+    let ssh_session = sessions::connect_host(pool, &host)
         .await
         .with_context(|| format!("ssh connect to {}", host.display_name))?;
     let ssh_session = Arc::new(ssh_session);
 
     // 2. 在同一條 connection 跑 list-sessions
     let list_stdout = ssh_session
-        .exec(sessions::TMUX_LIST_FMT)
+        .exec(&sessions::list_script(&host))
         .await
         .with_context(|| format!("list sessions on {}", host.display_name))?;
     let session_list = sessions::parse_sessions(&list_stdout)
@@ -327,7 +316,7 @@ async fn capture_via_session(
 ) -> Result<CaptureResult> {
     let cmd = format!(
         "{} capture-pane -t {}:0 -p -e -S -{}",
-        sessions::tmux_with_socket(socket),
+        sessions::tmux_cmd(host, socket),
         shell_quote(session_name),
         TMUX_CAPTURE_LINES,
     );
@@ -352,23 +341,15 @@ async fn capture_one(
     socket: &str,
     session_name: &str,
 ) -> Result<CaptureResult> {
-    let password = sessions::read_password_for(host)?;
-    let auth = sessions::build_auth(host, password.as_deref())?;
-    let port = sessions::port_u16(host)?;
-    let policy = HostKeyPolicy::Tofu {
-        pool,
-        host_id: &host.id,
-    };
-
     // -p 印到 stdout / -e 含 ANSI escape codes / -S -<N> 從往回 N 行起
     let cmd = format!(
         "{} capture-pane -t {}:0 -p -e -S -{}",
-        sessions::tmux_with_socket(socket),
+        sessions::tmux_cmd(host, socket),
         shell_quote(session_name),
         TMUX_CAPTURE_LINES,
     );
 
-    let stdout = ssh::run_command(&host.ssh_host, port, &host.ssh_user, auth, policy, &cmd)
+    let stdout = sessions::run_on_host(pool, host, &cmd)
         .await
         .with_context(|| {
             format!(

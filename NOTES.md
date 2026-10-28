@@ -212,6 +212,23 @@
   - **沒驗到的(誠實記帳)**:**Android 交叉編譯**這台沒 NDK —— ring 0.17 官方支援 aarch64/armv7-linux-android,但要 owner 跑一次 `tauri android build` 才算數;Windows build 同(ring 在 Windows 不需 NASM,理論上直接過)。rustfmt / clippy 這台沒裝,沒跑。MSRV 1.85 → **1.89**(russh 要求),README 已同步。
   - makiko 歷史紀錄(D-6 / D-7 / D-13 spike / ISSUE / release notes)原文保留不改。
 
+- D-49(2026-10-28,Tide #225,Kelp ⇄ Kirin 定案「laptop 留 psmux、不換 herdr」):**支援 Windows / psmux 主機(laptop `DDT@100.126.147.103`,psmux 3.4.0)。** 主機設定多兩欄(nullable,NULL = 舊行為,Linux 主機完全不變):
+  - `remote_shell`:有值 → 非 PTY 指令改成 exec 這個 shell、腳本從 **stdin** 送進去(Windows OpenSSH 預設 shell 是 cmd,沒有 `sh -c`、引號規則不同;照搬 reach `rsh()`)。laptop 填 `"C:\Program Files\Git\bin\bash.exe" -ls`。
+  - `tmux_bin`:tmux 執行檔。laptop 要填**真 exe** `C:/Users/DDT/AppData/Local/Microsoft/WinGet/Packages/marlocarlo.psmux_Microsoft.Winget.Source_8wekyb3d8bbwe/psmux.exe`(winget 的 symlink 在 ssh / session 0 下 Permission denied)。**用 `C:/` 正斜線**:Git Bash 腳本跟 cmd 直接 exec(attach)兩邊都認得。
+  - **自己選的解釋(owner review 可改)**:沒另開 `mux_kind` 欄,**「有 `remote_shell` = psmux 模式」**(`Host::is_psmux`)—— 唯一需要包遠端 shell 的理由就是登入 shell 不是 POSIX。psmux 模式下:
+    - **不帶 `-L`**:psmux 每個 session 是自己的 server(`~/.psmux/<name>.port`),`-L default` 反而 `no server running`;不帶 `-L` 的 `list-sessions` 就是全部。socket 欄一律標 `default`(tree 不分組)。
+    - **attach 不經 remote_shell**:PTY channel 直接 `exec "<psmux.exe>" attach -t "<name>"`(cmd 引號,擋 `"` / `%`)。沒有 D-43 tty 標記(psmux 的 `refresh-client -t /dev/pts/N` 會把 tty 當 session 名 → 失敗)、不探 `-T sync`(psmux 不認)→ 前端照既有路徑退回 resize 舞步。
+    - **停用**:`new_session`(從 ssh 起的 session 在 Windows session 0,桌面看不到 —— 卡上紅線)、字寬探針(要 new-session + kill-server)、檔案上傳(`cat >` 要獨佔 stdin,跟腳本走 stdin 衝突;cwd 也是 Windows 路徑)。都回明確錯誤字串,UI 按鈕沒藏。
+  - **Spike(2026-10-28,back → laptop 真機,全程沒建 / 沒殺 session)**:
+    | # | 項目 | 結果 | 證據 |
+    |---|---|---|---|
+    | ① | `list-sessions -F` 5 欄 | ✅ | `agent`(attached 1、windows 1)、`youtube-browser` 兩筆都 parse 得到;`-L default` ❌(no server) |
+    | ② | `capture-pane -e -S -N`(`-t agent:0`) | ✅ | 帶 ANSI 色碼、中文正常 |
+    | ③ | `send-keys -l` | ✅(只送空字串) | rc=0。**沒對真 session 送一行字**:兩個 session 都是活的 Claude Code(`agent` 正在跑、`youtube-browser` 停在信任選單),亂送會變成它們的輸入 —— 「送一行字有落地」留給 owner 在 GUI 驗 |
+    | ④ | PTY attach(ConPTY 經 ssh) | ✅ | cmd 直接 exec psmux.exe:整屏初繪 ~16KB、resize 後 `list-clients` 顯示 150x35、斷線後 client 消失、session 還在、桌面 client 不受影響 |
+  - **回歸測試**:`sessions::psmux_live`(`#[ignore]`,環境變數 `PIERMUX_PSMUX_TEST_*`)用真的 Rust 路徑跑 ①–④,2026-10-28 對 laptop `agent` 過。
+  - **沒驗 / 已知限制**:scroll(copy-mode)沒在 psmux 上測(會動到別人正在看的 pane);rename / kill 沒測(紅線)。attach 時 ConPTY 會吐 OSC 4 色盤查詢 / `?996n`,xterm.js 會回應 —— 實測 attach 正常,但 owner GUI 實測若看到怪字先查這裡。SPEC §5 hosts 表多兩欄,SPEC 沒改(小事,記這裡)。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
