@@ -229,6 +229,7 @@
   - **回歸測試**:`sessions::psmux_live`(`#[ignore]`,環境變數 `PIERMUX_PSMUX_TEST_*`)用真的 Rust 路徑跑 ①–④,2026-10-28 對 laptop `agent` 過。
   - **沒驗 / 已知限制**:scroll(copy-mode)沒在 psmux 上測(會動到別人正在看的 pane);rename / kill 沒測(紅線)。attach 時 ConPTY 會吐 OSC 4 色盤查詢 / `?996n`,xterm.js 會回應 —— 實測 attach 正常,但 owner GUI 實測若看到怪字先查這裡。SPEC §5 hosts 表多兩欄,SPEC 沒改(小事,記這裡)。
 - D-50(2026-10-29,Tide #225,Kirin 在 laptop 本機 GUI 實測後拍板):**psmux 主機放行 `new_session`**。D-49 擋掉的理由「ssh 建的 session 落在 Windows session 0、桌面看不到」前提不成立:psmux 用 `~/.psmux/<name>.{port,pid,key,sid}` 找 session(TCP localhost),同一個 home 不分 Windows session,桌面 `psmux ls` / attach 都看得到 ssh 建的 session。真正的限制只有「那個 session 裡起的 GUI 程式顯示不出來」(session 0 沒桌面),對 piermux 的用途(shell / Claude Code)無關。走原本 `tmux_cmd` + `run_on_host`(psmux 不帶 `-L`,腳本經 Git Bash,`new-session -d -s` 語法 psmux 相容)。
+- D-51(2026-10-29,Kirin laptop 實測後要的三個 UI 小事):① 多行貼上 dialog(D-20)**Alt+Enter = 貼上**(textarea 內 Enter 是換行,只能靠修飾鍵;Ctrl+Enter 沒綁,留著給以後)。② dialog 開啟 / initialText 變動時游標置尾改在 `requestAnimationFrame` 後做並 `scrollTop = scrollHeight`:WebView2 上 mount 當下 focus 會把游標放開頭、也不捲到底,owner 回報「游標不在文末」就是這個。③ 主機樹選著 session 時 **Ctrl+V 複製 session 名**到剪貼簿(owner 指定 Ctrl+V 不是 Ctrl+C,因為 Ctrl+C 在終端語意是 SIGINT);焦點在 input / textarea / contentEditable(含 xterm helper textarea、各 dialog)時不攔,那裡 Ctrl+V 還是貼上。只做 desktop(`HostTree`),Android 沒鍵盤情境。
 
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
