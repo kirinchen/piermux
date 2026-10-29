@@ -123,13 +123,8 @@ pub async fn new_session(
     let host = hosts::fetch_one(pool.inner(), &host_id)
         .await
         .map_err(|e| format!("fetch host: {e}"))?;
-    if host.is_psmux() {
-        // #225:從 ssh 起的 psmux session 落在 Windows session 0,桌面看不到也碰不到 GUI
-        return Err(
-            "Windows(psmux)主機不支援從 piermux 建 session:從 ssh 建出來的 session 在 session 0,桌面看不到。請在 laptop 桌面上自己建。"
-                .into(),
-        );
-    }
+    // psmux 主機也放行(D-50):psmux 靠 ~/.psmux/<name>.port 找 session,不分 Windows
+    // session,ssh 建的 session 桌面一樣列得到、attach 得進去;只是裡面起的 GUI 程式不會顯示在桌面。
     // -d:detached(不要 attach,我們只是建出來);-s:session name
     let cmd = format!(
         "{} new-session -d -s {}",
