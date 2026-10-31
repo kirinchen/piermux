@@ -14,10 +14,12 @@ import {
   CheckSquare,
   Zap,
   Server,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Button } from "@/components/ui/button";
+import { ContextMenu } from "@/components/ContextMenu";
 import { useHostsList, useDeleteHost } from "@/hooks/useHosts";
 import {
   useSessions,
@@ -54,6 +56,13 @@ type Props = {
   onToggleMulti: (host: Host) => void;
 };
 
+/** 把 session 名寫進 OS 剪貼簿 + toast(D-51;鍵盤 Ctrl+C / Ctrl+V 與右鍵選單共用)。 */
+function copySessionName(name: string) {
+  writeText(name)
+    .then(() => toast.success(`已複製 session 名稱:${name}`))
+    .catch((err) => toast.error(`複製失敗:${String(err)}`));
+}
+
 export function HostTree({
   selection,
   onSelect,
@@ -87,9 +96,7 @@ export function HostTree({
       if (key === "c" && (window.getSelection()?.toString() ?? "") !== "")
         return;
       e.preventDefault();
-      writeText(name)
-        .then(() => toast.success(`已複製 session 名稱:${name}`))
-        .catch((err) => toast.error(`複製失敗:${String(err)}`));
+      copySessionName(name);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -422,9 +429,14 @@ function SessionRow({
   const [refreshing, setRefreshing] = React.useState(false);
   const kill = useKillSession();
   const rename = useRenameSession();
+  // 右鍵選單位置;null = 沒開(D-51)
+  const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(
+    null,
+  );
+  const closeMenu = React.useCallback(() => setMenu(null), []);
 
-  const handleRefreshSession = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRefreshSession = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setRefreshing(true);
     try {
       await api.captureSession(host.id, session.socket, session.name);
@@ -435,8 +447,8 @@ function SessionRow({
     }
   };
 
-  const handleRename = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRename = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const input = window.prompt(`重新命名 session '${session.name}' 為:`, session.name);
     if (input == null) return;
     const next = input.trim();
@@ -454,8 +466,8 @@ function SessionRow({
     }
   };
 
-  const handleKill = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleKill = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (!window.confirm(`確定要 kill session '${session.name}'?(無法復原)`)) return;
     try {
       await kill.mutateAsync({
@@ -475,7 +487,45 @@ function SessionRow({
       className={`group flex items-baseline gap-2 rounded-md pr-1 hover:bg-muted ${
         selected ? "bg-muted" : ""
       }`}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
     >
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={closeMenu}
+          items={[
+            {
+              label: "複製名稱",
+              icon: <Copy className="h-3.5 w-3.5" />,
+              onSelect: () => copySessionName(session.name),
+            },
+            {
+              label: "重抓畫面",
+              icon: <RefreshCw className="h-3.5 w-3.5" />,
+              disabled: refreshing,
+              onSelect: () => void handleRefreshSession(),
+            },
+            {
+              label: "重新命名",
+              icon: <Pencil className="h-3.5 w-3.5" />,
+              disabled: rename.isPending,
+              onSelect: () => void handleRename(),
+            },
+            {
+              label: "Kill session",
+              icon: <Trash2 className="h-3.5 w-3.5" />,
+              disabled: kill.isPending,
+              danger: true,
+              onSelect: () => void handleKill(),
+            },
+          ]}
+        />
+      )}
       <button
         type="button"
         onClick={onSelect}
