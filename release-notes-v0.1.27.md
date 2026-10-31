@@ -18,7 +18,7 @@
   - `piermux_0.1.27_x64_en-US.msi` — MSI(批次部署用)
   - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
 - **Android** — 本版只動桌面版 UI,APK 不重出(沿用 v0.1.26)。
-- **Linux** — 待 owner 在 Linux 補上(`.deb` / `.AppImage`)。
+- **Linux(x64)** — `piermux_0.1.27_amd64.deb` / `piermux_0.1.27_amd64.AppImage`(2026-11-01 補上,從 tag `v0.1.27` build)。
 
 ## Full Changelog
 
