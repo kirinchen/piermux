@@ -65,22 +65,26 @@ export function HostTree({
   const del = useDeleteHost();
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
-  // 樹上選著 session 時按 Ctrl+V → 把 session 名複製到剪貼簿(owner 指定 Ctrl+V,
-  // 因為 Ctrl+C 在終端機語意是 SIGINT)。焦點在 input / textarea(含 xterm 的
-  // helper textarea、各 dialog)時不攔,那裡 Ctrl+V 是真的貼上。
+  // 樹上選著 session 時按 Ctrl+C / Ctrl+V → 把 session 名複製到剪貼簿(D-51)。
+  // 焦點在 input / textarea(含 xterm 的 helper textarea、各 dialog)時不攔:
+  // 那裡 Ctrl+C 是 SIGINT、Ctrl+V 是真的貼上。頁面上有選取文字時也不攔 Ctrl+C,
+  // 讓它照常複製選取。
   React.useEffect(() => {
     if (selection?.kind !== "session") return;
     const name = selection.session.name;
     const onKey = (e: KeyboardEvent) => {
-      const isCtrlV =
-        e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "v";
-      if (!isCtrlV) return;
+      const key = e.key.toLowerCase();
+      const isCopyKey =
+        e.ctrlKey && !e.altKey && !e.metaKey && (key === "c" || key === "v");
+      if (!isCopyKey) return;
       const el = document.activeElement;
       if (
         el instanceof HTMLInputElement ||
         el instanceof HTMLTextAreaElement ||
         (el instanceof HTMLElement && el.isContentEditable)
       )
+        return;
+      if (key === "c" && (window.getSelection()?.toString() ?? "") !== "")
         return;
       e.preventDefault();
       writeText(name)
