@@ -17,7 +17,7 @@
   - `piermux_0.1.28_x64-setup.exe` — NSIS 安裝檔(建議)
   - `piermux_0.1.28_x64_en-US.msi` — MSI(批次部署用)
   - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
-- **Android** — 本版只動桌面版 UI,APK 不重出(沿用 v0.1.26)。
+- **Android** — `piermux-android-v0.1.28.apk`(universal,簽章同 v0.1.26,可直接覆蓋更新)
 
 ## Full Changelog
 
