@@ -3,8 +3,6 @@
 跨多機 tmux session GUI · desktop (Windows / Linux) + Android。
 兩個桌面版主機樹的小改,接續 v0.1.27 的 D-51。
 
-> ⚠️ **Pre-release**:沿 v0.1.26 的 psmux 驗收線,owner 實測過再轉正式版。
-
 ## What's Changed
 
 - **session 列右鍵選單**(D-51):複製名稱 / 重抓畫面 / 重新命名 / Kill。之前右鍵跳的是瀏覽器預設選單。
@@ -15,7 +13,10 @@
 ## Assets
 
 - **Linux(x64)** — `piermux_0.1.28_amd64.deb` / `piermux_0.1.28_amd64.AppImage`
-- **Windows 桌面(x64)** — 待在 Windows 上補(`.exe` / `.msi`)。
+- **Windows 桌面(x64)**
+  - `piermux_0.1.28_x64-setup.exe` — NSIS 安裝檔(建議)
+  - `piermux_0.1.28_x64_en-US.msi` — MSI(批次部署用)
+  - ⚠️ 首次啟動會跳 SmartScreen(未買 code-signing 憑證):點「其他資訊」→「仍要執行」。
 - **Android** — 本版只動桌面版 UI,APK 不重出(沿用 v0.1.26)。
 
 ## Full Changelog
