@@ -26,6 +26,8 @@ import { useViewportHeight } from "./useViewportHeight";
 import { useTouchScroll } from "./useTouchScroll";
 import { PasteConfirmDialog } from "@/components/PasteConfirmDialog";
 import { usePasteGuard } from "@/components/usePasteGuard";
+import { CopyTextSheet } from "./CopyTextSheet";
+import { ansiToText, bufferToText } from "@/lib/term-text";
 
 type Mode = "capture" | "attach";
 
@@ -149,6 +151,7 @@ function CaptureView({
   const [refreshing, setRefreshing] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current || xtermRef.current) return;
@@ -303,9 +306,25 @@ function CaptureView({
         >
           {refreshing ? "…" : "🔄"}
         </button>
+        <button
+          type="button"
+          title="複製文字"
+          onClick={() => setCopyOpen(true)}
+          className="absolute right-14 top-2 rounded-md bg-zinc-900/80 px-3 py-2 text-xs backdrop-blur active:bg-zinc-800"
+        >
+          📋
+        </button>
       </div>
 
       <QuickKeyBar disabled={sending} onSendKey={sendKey} />
+
+      {copyOpen && (
+        <CopyTextSheet
+          // capture view 的 xterm buffer 就是 capture-pane 內容(含 2000 行歷史)
+          load={() => (xtermRef.current ? bufferToText(xtermRef.current) : "")}
+          onClose={() => setCopyOpen(false)}
+        />
+      )}
 
       <div className="flex items-center gap-2 border-t border-zinc-800 bg-zinc-950 px-2 py-2">
         <input
@@ -358,6 +377,7 @@ function AttachView({
   const autoRedrawSuppressUntilRef = useRef(0);
   const redrawInflightRef = useRef(false);
   const [attachId, setAttachId] = useState<string | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [ctrlSticky, setCtrlSticky] = useState(false);
   const [altSticky, setAltSticky] = useState(false);
   const [barCollapsed, setBarCollapsed] = useState(false);
@@ -737,6 +757,19 @@ function AttachView({
             🔄 重整
           </button>
         )}
+        {attachId && (
+          <button
+            type="button"
+            title="複製文字"
+            onClick={(e) => {
+              e.stopPropagation(); // 別叫出軟鍵盤
+              setCopyOpen(true);
+            }}
+            className="absolute right-28 top-2 z-10 rounded-md bg-zinc-800/80 px-3 py-2 text-sm text-zinc-200 active:bg-zinc-700"
+          >
+            📋 複製
+          </button>
+        )}
       </div>
 
       <ModifierBar
@@ -749,6 +782,22 @@ function AttachView({
         onToggleCollapsed={() => setBarCollapsed((v) => !v)}
         onSendBytes={writeRaw}
       />
+
+      {copyOpen && (
+        <CopyTextSheet
+          load={() =>
+            // tmux attach:xterm 是 alt buffer 只有一屏,歷史要找 tmux 拿
+            target.kind === "tmux"
+              ? api
+                  .captureSession(hostId, target.socket, target.session)
+                  .then((r) => ansiToText(r.content))
+              : xtermRef.current
+                ? bufferToText(xtermRef.current)
+                : ""
+          }
+          onClose={() => setCopyOpen(false)}
+        />
+      )}
 
       {paste.pending !== null && (
         <PasteConfirmDialog

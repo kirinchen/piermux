@@ -231,6 +231,11 @@
 - D-50(2026-10-29,Tide #225,Kirin 在 laptop 本機 GUI 實測後拍板):**psmux 主機放行 `new_session`**。D-49 擋掉的理由「ssh 建的 session 落在 Windows session 0、桌面看不到」前提不成立:psmux 用 `~/.psmux/<name>.{port,pid,key,sid}` 找 session(TCP localhost),同一個 home 不分 Windows session,桌面 `psmux ls` / attach 都看得到 ssh 建的 session。真正的限制只有「那個 session 裡起的 GUI 程式顯示不出來」(session 0 沒桌面),對 piermux 的用途(shell / Claude Code)無關。走原本 `tmux_cmd` + `run_on_host`(psmux 不帶 `-L`,腳本經 Git Bash,`new-session -d -s` 語法 psmux 相容)。
 - D-51(2026-10-29,Kirin laptop 實測後要的三個 UI 小事):① 多行貼上 dialog(D-20)**Alt+Enter = 貼上**(textarea 內 Enter 是換行,只能靠修飾鍵;Ctrl+Enter 沒綁,留著給以後)。② dialog 開啟 / initialText 變動時游標置尾改在 `requestAnimationFrame` 後做並 `scrollTop = scrollHeight`:WebView2 上 mount 當下 focus 會把游標放開頭、也不捲到底,owner 回報「游標不在文末」就是這個。③ 主機樹選著 session 時 **Ctrl+C / Ctrl+V 都複製 session 名**到剪貼簿(owner 先寫 Ctrl+V,實測又按 Ctrl+C,兩個都收;頁面有選取文字時 Ctrl+C 不攔,照常複製選取);焦點在 input / textarea / contentEditable(含 xterm helper textarea、各 dialog)時不攔,那裡 Ctrl+V 還是貼上。只做 desktop(`HostTree`),Android 沒鍵盤情境。④ session 列**右鍵選單**(`components/ContextMenu.tsx`,手刻不拉 radix):複製名稱 / 重抓畫面 / 重新命名 / Kill,跟 hover 小按鈕同一組 handler;位置夾進 viewport,點外面 / Esc / 捲動 / resize 關。之前右鍵跳的是 WebView2 預設選單。
 
+- D-52(2026-11-11,owner:「增加可以複製 console 上面的文字功能 for android」):**Android 終端加「📋 複製」面板。** capture / attach 兩個 view 右上角各一顆鈕,打開全螢幕 `CopyTextSheet`:終端內容轉純文字放進唯讀 textarea,用 Android 原生長按選字(拖把手、系統複製選單),另有「複製選取 / 全部複製」兩鈕(走 clipboard plugin `writeText`)。
+  - 為什麼另開面板、不在 xterm 上直接選:單指拖曳已給捲動(D-26),xterm 觸控選字本來也難用;面板跟捲動 / 輸入完全不搶手勢,line buffer 不受影響。
+  - 內容來源:capture view 讀 xterm buffer(就是 capture-pane 內容,含 2000 行歷史);**attach tmux 另跑一次 `captureSession`** 去 ANSI(attach 的 xterm 是 alt buffer,只有一屏);shell attach 讀 xterm buffer。轉換在 `lib/term-text.ts`(軟換行接回、去行尾空白)。
+  - 沒做:系統返回鍵關面板(`useAndroidBack` 是 AndroidApp 單一 listener,會直接退出 session 畫面;面板用左上 ✕ 關)。desktop 沒動(滑鼠本來就能選)。實機未驗,待 owner 裝 APK 測。
+
 **ISSUE-010 sticky acceptance(尚未實機驗)**
 - SPEC §8 M2 完成標準:Android 真機加 host → 看 tree → attach Claude Code session → line buffer 打**中文**按 Enter → Claude 收到完整訊息。**未驗以前 M2 不算 done。**
 - 還待驗:Tauri 2 Android hardware back × onCloseRequested、Gboard 中文 IME × line buffer、軟鍵盤 × xterm fit、CTRL sticky × Android key event、`tauri android build --release` 真的 sign 出 APK
