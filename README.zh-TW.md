@@ -1,5 +1,12 @@
 # piermux
 
+> [!WARNING]
+> **已退場:2026-11-18 起停止開發。**
+> 原因:作者自己的 agent 工作台改用 Herdr App / herdr-core,不再需要 piermux。
+> 最後版本是 [v0.1.28](https://github.com/kirinchen/piermux/releases/tag/v0.1.28)(desktop Windows / Linux + Android APK)。
+> Android(M2)不再繼續,實機驗收沒做完。
+> 程式碼保留供參考,不再處理 issue / PR。
+
 > **[English](README.md) · 繁體中文(本檔)**
 
 > **跨多機 tmux session 的 GUI 快速 attach 工具,Desktop + Android。**

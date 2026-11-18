@@ -1,5 +1,12 @@
 # piermux
 
+> [!WARNING]
+> **Retired — no longer developed as of 2026-11-18.**
+> The author's own agent workbench moved to Herdr App / herdr-core, so piermux is no longer needed.
+> The last release is [v0.1.28](https://github.com/kirinchen/piermux/releases/tag/v0.1.28) (desktop Windows / Linux + Android APK).
+> Android (M2) work stops here; its on-device acceptance was never completed.
+> The code stays here for reference only. No issues or PRs will be handled.
+
 > **English(this file)· [繁體中文](README.zh-TW.md)**
 
 > **GUI for managing tmux sessions across multiple SSH hosts. Desktop + Android.**

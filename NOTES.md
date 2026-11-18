@@ -5,6 +5,9 @@
 
 ## Current milestone
 
+**🛑 已退場(2026-11-18,Tide #282,Kirin 決定)** —— 停止開發。Kirin 的 agent 工作台改用 Herdr App + herdr-core,back 的 tmux 已全部退場,piermux 沒有使用情境了。最後版本 v0.1.28(desktop Windows / Linux + Android APK);Android M2 不再繼續(ISSUE-010 實機驗收沒做完);D-52 Android 複製文字面板已 commit 但沒發版。GitHub repo 之後封存,程式碼保留供參考。以下為退場前紀錄。
+
+
 **M2b → M2e 主線打完(2026-05-14,一天)** — EPIC-002 / ISSUE-010。六個 commit:
 - `aa28a7f` M2b scaffold:platform routing + 四 screen + stack nav
 - `d98db95` M2b 收尾:`useAndroidBack` hook + AndroidHostFormScreen 全屏 form

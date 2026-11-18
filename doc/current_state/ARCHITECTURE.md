@@ -5,6 +5,8 @@ owner: kirin
 
 # Architecture — Current State
 
+> **🛑 已退場(2026-11-18,Tide #282)**:停止開發,本檔凍結在退場當下的程式狀態(含未發版的 D-52)。最後發佈版本 v0.1.28。原因:作者的 agent 工作台改用 Herdr App / herdr-core。
+
 > *How the system **actually** looks right now. Pair with [`../SPEC.md`](../SPEC.md) which describes intent.*
 >
 > **Maintenance rule**: when your code change goes beyond what this file describes
