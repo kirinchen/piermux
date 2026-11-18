@@ -6,9 +6,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { HostTree, type Selection } from "./HostTree";
+import { isBackShortcut, useSelectionHistory } from "./useSelectionHistory";
 import { SessionPanel } from "./SessionPanel";
 import { HostCaptureGrid } from "./HostCaptureGrid";
 import { MultiHostCaptureGrid } from "./MultiHostCaptureGrid";
@@ -31,7 +33,14 @@ import {
 const SIDEBAR_KEY = "piermux:sidebarCollapsed";
 
 export function HostsView() {
-  const [selection, setSelection] = React.useState<Selection>(null);
+  // 頁面 = selection;換頁經 setSelection 推進瀏覽紀錄,goBack 回上一頁(D-48)
+  const {
+    selection,
+    navigate: setSelection,
+    goBack,
+    canGoBack,
+    pruneHosts,
+  } = useSelectionHistory();
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Host | null>(null);
@@ -94,12 +103,21 @@ export function HostsView() {
     setSelection({ kind: "session", host, session });
   };
 
-  // session 單一視圖 → 按返回回 host grid
-  const backToHostGrid = () => {
-    if (selection?.kind === "session" || selection?.kind === "shell") {
-      setSelection({ kind: "host", host: selection.host });
-    }
-  };
+  // D-48:上一頁 —— Ctrl+Q / header 的 ← / SessionPanel 的返回鍵都走這裡。
+  // capture phase 掛在 window 上並 stopPropagation(同 SessionPanel 的 F5):attach 時
+  // 焦點在 xterm,不攔的話 Ctrl+Q 會變成 \x11 送進 PTY。代價是 Ctrl+Q 不再送到遠端
+  // (XON / emacs quoted-insert),owner 指定的鍵,接受。對話框開著時不觸發。
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isBackShortcut(e)) return;
+      if (dialogOpen || settingsOpen) return;
+      e.preventDefault();
+      e.stopPropagation();
+      goBack();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [dialogOpen, settingsOpen, goBack]);
 
   // 點 host 旁 checkbox → toggle 進 / 出 multi-host 比較模式
   const toggleMulti = (host: Host) => {
@@ -122,6 +140,10 @@ export function HostsView() {
   // 再餵給同一個 setSelection。URL 做不到任何「點畫面做不到的事」,也就沒有後端旁路。
   const { req: incomingLink, consume: consumeLink } = useIncomingDeepLink();
   const hostsQuery = useHostsList();
+  // host 被刪後,瀏覽紀錄裡指到它的頁面清掉,上一頁不會回到不存在的 host
+  React.useEffect(() => {
+    if (hostsQuery.data) pruneHosts(new Set(hostsQuery.data.map((h) => h.id)));
+  }, [hostsQuery.data, pruneHosts]);
   // host 已定、還要在該 host 的 session 清單裡找名字
   const [linkTarget, setLinkTarget] = React.useState<{
     host: Host;
@@ -199,6 +221,16 @@ export function HostsView() {
             ) : (
               <PanelLeftClose className="h-4 w-4" />
             )}
+          </button>
+          <button
+            type="button"
+            onClick={goBack}
+            disabled={!canGoBack}
+            className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+            title="上一頁(Ctrl+Q)"
+            aria-label="back"
+          >
+            <ArrowLeft className="h-4 w-4" />
           </button>
           <div>
             <h1 className="text-lg font-semibold leading-tight">
@@ -305,14 +337,14 @@ export function HostsView() {
             <SessionPanel
               host={selection.host}
               target={{ kind: "tmux", session: selection.session }}
-              onBack={backToHostGrid}
+              onBack={goBack}
             />
           )}
           {selection?.kind === "shell" && (
             <SessionPanel
               host={selection.host}
               target={{ kind: "shell" }}
-              onBack={backToHostGrid}
+              onBack={goBack}
             />
           )}
           {selection?.kind === "multi-host" && (

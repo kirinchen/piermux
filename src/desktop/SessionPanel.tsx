@@ -759,7 +759,7 @@ export function SessionPanel({ host, target, onBack }: Props) {
               type="button"
               onClick={onBack}
               className="mt-0.5 rounded p-1 text-muted-foreground hover:bg-muted"
-              title="返回上一層"
+              title="上一頁(Ctrl+Q)"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>

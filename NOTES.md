@@ -212,6 +212,12 @@
   - **沒驗到的(誠實記帳)**:**Android 交叉編譯**這台沒 NDK —— ring 0.17 官方支援 aarch64/armv7-linux-android,但要 owner 跑一次 `tauri android build` 才算數;Windows build 同(ring 在 Windows 不需 NASM,理論上直接過)。rustfmt / clippy 這台沒裝,沒跑。MSRV 1.85 → **1.89**(russh 要求),README 已同步。
   - makiko 歷史紀錄(D-6 / D-7 / D-13 spike / ISSUE / release notes)原文保留不改。
 
+- D-48(2026-10-08,owner:「增加一個回到上一頁的功能,快捷鍵 Ctrl+Q」):**desktop 上一頁 = 瀏覽紀錄堆疊,Ctrl+Q / header ← / SessionPanel 返回鍵共用。**
+  - 「上一頁」選瀏覽器語意(堆疊),不是只往上一層:從 multi-host 並列點進 session,上一頁回 multi-host;原本的返回鍵只會回那台 host 的 grid。堆疊空時(例如 deep link 直接開進 session)才退回往上一層。
+  - 細節:同頁不重複推;multi-host 勾選框加減 host 只換不推(不會一格一格退勾選);host 被刪時清掉紀錄裡指到它的頁面並去相鄰重複;上限 50。邏輯在 `src/desktop/useSelectionHistory.ts`(reducer 匯出,9 個情境用 tsx 實測過)。
+  - **Ctrl+Q 在 attach 終端裡也有效**(最常用的情境),所以照 F5 的做法在 window capture phase 攔 + `stopPropagation`。**代價:Ctrl+Q(`\x11`,XON / emacs quoted-insert)不再送到遠端** —— owner 指定的鍵,接受;真的要送可以之後在 QuickKeyBar 類的地方補。用 `e.code === "KeyQ"` 判斷,注音 / 非拉丁鍵盤配置也認得;組字中(`isComposing`)、對話框開著時不觸發。
+  - Android 沒動(有系統返回鍵)。
+
 - D-49(2026-10-28,Tide #225,Kelp ⇄ Kirin 定案「laptop 留 psmux、不換 herdr」):**支援 Windows / psmux 主機(laptop `DDT@100.126.147.103`,psmux 3.4.0)。** 主機設定多兩欄(nullable,NULL = 舊行為,Linux 主機完全不變):
   - `remote_shell`:有值 → 非 PTY 指令改成 exec 這個 shell、腳本從 **stdin** 送進去(Windows OpenSSH 預設 shell 是 cmd,沒有 `sh -c`、引號規則不同;照搬 reach `rsh()`)。laptop 填 `"C:\Program Files\Git\bin\bash.exe" -ls`。
   - `tmux_bin`:tmux 執行檔。laptop 要填**真 exe** `C:/Users/DDT/AppData/Local/Microsoft/WinGet/Packages/marlocarlo.psmux_Microsoft.Winget.Source_8wekyb3d8bbwe/psmux.exe`(winget 的 symlink 在 ssh / session 0 下 Permission denied)。**用 `C:/` 正斜線**:Git Bash 腳本跟 cmd 直接 exec(attach)兩邊都認得。
